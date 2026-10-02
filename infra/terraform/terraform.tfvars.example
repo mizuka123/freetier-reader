@@ -1,0 +1,32 @@
+# cp terraform.tfvars.example terraform.tfvars して値を入れる（terraform.tfvars は gitignore 済み）
+
+# ---- OCI ----
+oci_config_profile = "DEFAULT"
+oci_region         = "ap-tokyo-1"
+tenancy_ocid       = "ocid1.tenancy.oc1..xxxxxxxxxxxxxxxx"
+# compartment_ocid = "ocid1.compartment.oc1..xxxxxxxxxxxxxxxx"
+budget_alert_email = "you@example.com"
+
+# A1 の在庫切れ時は 1, 2 を試す（AD が複数あるリージョンのみ）
+# availability_domain_index = 0
+# instance_ocpus     = 2
+# instance_memory_gb = 12
+# boot_volume_gb     = 50
+
+# SSH は既定で全閉。必要なときだけ自宅 IP を許可する
+# ssh_public_key   = "ssh-ed25519 AAAA... you@example"
+# ssh_allowed_cidr = "203.0.113.10/32"
+
+# ---- Cloudflare ----
+# 環境変数 TF_VAR_cloudflare_api_token で渡すことを推奨
+# cloudflare_api_token = "..."
+cloudflare_account_id = "0123456789abcdef0123456789abcdef"
+cloudflare_zone_id    = "0123456789abcdef0123456789abcdef"
+reader_hostname       = "reader.example.com"
+allowed_emails        = ["you@example.com"]
+# api_allowed_countries = ["JP"]
+
+# ---- アプリ ----
+# フォークした場合は自分のリポジトリに変更
+# repo_url = "https://github.com/<you>/freetier-reader.git"
+x_allowed_users = ["example_user1", "example_user2"]

@@ -1,0 +1,44 @@
+#cloud-config
+# VM 初回起動時に Docker を入れ、リポジトリを clone して compose で起動する。
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+  - cron
+
+write_files:
+  - path: /root/freetier-reader.env
+    encoding: b64
+    content: ${env_file_b64}
+    permissions: "0600"
+
+  # コンテナからインスタンスメタデータ（169.254.0.0/16）と VCN 内部への通信を遮断（SSRF 対策）
+  - path: /etc/systemd/system/freetier-reader-egress-guard.service
+    content: |
+      [Unit]
+      Description=Block container access to instance metadata and VCN
+      After=docker.service
+      Requires=docker.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/bin/sh -c 'iptables -C DOCKER-USER -d 169.254.0.0/16 -j DROP 2>/dev/null || iptables -I DOCKER-USER -d 169.254.0.0/16 -j DROP'
+      ExecStart=/bin/sh -c 'iptables -C DOCKER-USER -d 10.0.0.0/16 -j DROP 2>/dev/null || iptables -I DOCKER-USER -d 10.0.0.0/16 -j DROP'
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # 毎日 03:30 JST（18:30 UTC）にバックアップ
+  - path: /etc/cron.d/freetier-reader-backup
+    content: |
+      30 18 * * * root /opt/freetier-reader/scripts/backup.sh >> /var/log/freetier-reader-backup.log 2>&1
+
+runcmd:
+  - systemctl enable --now docker
+  - systemctl enable --now freetier-reader-egress-guard.service
+  - git clone --branch ${repo_ref} ${repo_url} /opt/freetier-reader
+  - mv /root/freetier-reader.env /opt/freetier-reader/.env
+  - chmod +x /opt/freetier-reader/scripts/*.sh
+  - cd /opt/freetier-reader && docker compose pull --ignore-buildable --ignore-pull-failures && docker compose up -d

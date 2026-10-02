@@ -1,0 +1,92 @@
+name: freetier-reader
+
+# イメージのタグは固定し、Dependabot で更新 PR を受け取る
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: miniflux
+      POSTGRES_DB: miniflux
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run scripts/init.sh}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "miniflux"]
+      interval: 10s
+      start_period: 30s
+
+  miniflux:
+    image: miniflux/miniflux:2.3.3
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://miniflux:${POSTGRES_PASSWORD}@postgres/miniflux?sslmode=disable
+      RUN_MIGRATIONS: "1"
+      CREATE_ADMIN: "1"
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?run scripts/init.sh}
+      BASE_URL: https://${READER_HOSTNAME:?set READER_HOSTNAME}
+      # パスキー（WebAuthn）ログイン
+      WEBAUTHN: "1"
+      # 巡回間隔（分）
+      POLLING_FREQUENCY: "30"
+      # 既読記事は 90 日で削除（スター付きは残る）
+      CLEANUP_ARCHIVE_READ_DAYS: "90"
+      # ログインセッションを長く保持し、再ログインを減らす
+      CLEANUP_REMOVE_SESSIONS_DAYS: "180"
+    ports:
+      # VM のローカルホストのみ。外部公開は cloudflared 経由
+      - "127.0.0.1:${MINIFLUX_LOCAL_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "/usr/bin/miniflux", "-healthcheck", "auto"]
+      interval: 30s
+
+  rss-bridge:
+    image: rssbridge/rss-bridge:2026-09-30
+    restart: unless-stopped
+    volumes:
+      - ./config/rss-bridge:/config:ro
+
+  x-webhook-rss:
+    profiles: ["x"]
+    image: ${X_WEBHOOK_RSS_IMAGE:-ghcr.io/mizuka123/freetier-reader-x-webhook-rss:latest}
+    build: ./services/x-webhook-rss
+    restart: unless-stopped
+    environment:
+      X_WEBHOOK_TOKEN: ${X_WEBHOOK_TOKEN:?run scripts/init.sh}
+      X_ALLOWED_USERS: ${X_ALLOWED_USERS:-}
+      X_IFTTT_TZ_OFFSET: ${X_IFTTT_TZ_OFFSET:-+09:00}
+      X_MAX_ITEMS: ${X_MAX_ITEMS:-200}
+    volumes:
+      - x-data:/data
+
+  cloudflared:
+    profiles: ["cloudflare"]
+    image: cloudflare/cloudflared:2026.9.3
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - miniflux
+
+  morss:
+    profiles: ["morss"]
+    # 公式は latest のみ配布。AGPL-3.0（改変せずに利用）
+    image: pictuga/morss:latest
+    restart: unless-stopped
+
+  rsshub:
+    profiles: ["rsshub"]
+    image: diygod/rsshub:2026-10-01
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: memory
+
+volumes:
+  pg-data:
+  x-data:
