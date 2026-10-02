@@ -311,7 +311,6 @@ summary:focus-visible,
   outline: 2px solid var(--ftr-focus-outline);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--ftr-focus-ring);
-  border-radius: 2px;
 }
 
 /* ---- ボタン・入力（角丸 8px、タップしやすい高さ） ---- */

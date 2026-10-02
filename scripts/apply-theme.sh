@@ -25,7 +25,6 @@ fail() {
 trap 'fail "apply-theme failed at line $LINENO"' ERR
 
 load_env
-command -v python3 >/dev/null || fail "python3 が必要です"
 
 mode="${MINIFLUX_THEME:-dads}"
 [[ "${1:-}" == "--reset" ]] && mode=reset
@@ -38,6 +37,7 @@ if [[ "$mode" == "none" ]]; then
   exit 0
 fi
 [[ "$mode" == "dads" || "$mode" == "reset" ]] || fail "unknown MINIFLUX_THEME: ${mode} (dads / none)"
+command -v python3 >/dev/null || fail "python3 が必要です"
 
 # curl の設定ファイル形式で認証情報を出力する（" と \ をエスケープ）
 curl_auth_config() {
@@ -73,8 +73,12 @@ backup_path = os.environ["BACKUP"]
 if mode == "reset":
     if os.path.exists(backup_path):
         before = json.load(open(backup_path, encoding="utf-8"))
-    else:
+    elif "--dads-" in me.get("stylesheet", ""):
+        # 退避データはないが dads が適用されている場合は Miniflux の既定に戻す
         before = {"stylesheet": "", "theme": "light_serif", "external_font_hosts": ""}
+    else:
+        # dads が適用されていなければ利用者の設定には触れない
+        raise SystemExit(0)
     body = {"stylesheet": before["stylesheet"], "theme": before["theme"]}
     # Miniflux は空の external_font_hosts を受け付けないため、空なら送らない（設定は残る）
     if before.get("external_font_hosts"):
@@ -95,6 +99,12 @@ else:
 print(json.dumps(body))
 PY
 )"
+
+if [[ -z "$payload" ]]; then
+  rm -f "$failed_marker"
+  echo "dads theme is not applied; nothing to reset (no changes made)"
+  exit 0
+fi
 
 result="$(api -X PUT --data-binary @- "${base_url}/v1/users/${user_id}" <<<"$payload")" \
   || fail "Miniflux がテーマ設定を受け付けませんでした: ${result:-}"

@@ -105,6 +105,13 @@ jobs:
           check 'u["stylesheet"]=="" and u["theme"]=="light_serif"'
           test ! -f .state/theme-before-dads.json
 
+          echo "--- reset without dads applied does not touch user settings"
+          curl -fsS -X PUT -H "X-Auth-Token: ${token}" -H 'Content-Type: application/json' \
+            --data '{"stylesheet": "/* user css 2 */", "theme": "dark_sans_serif"}' \
+            "http://127.0.0.1:8080/v1/users/$(me | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" >/dev/null
+          bash scripts/apply-theme.sh --reset
+          check 'u["stylesheet"]=="/* user css 2 */" and u["theme"]=="dark_sans_serif"'
+
           echo "--- re-apply for the browser checks"
           setenv ADMIN_PASSWORD "$admin_pw"
           bash scripts/apply-theme.sh
