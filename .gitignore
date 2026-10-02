@@ -5,6 +5,10 @@
 *.local.yml
 *.local.yaml
 
+# 開発者ごとのエージェント設定・メモ（共有するルールは AGENTS.md へ）
+*.local.md
+.claude/settings.local.json
+
 # Terraform
 **/.terraform/
 *.tfstate
