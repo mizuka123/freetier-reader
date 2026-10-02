@@ -98,7 +98,7 @@ jobs:
                       open(f"/tmp/{au}-" + f["path"].rsplit("/", 1)[1], "w").write(f["content"])
           PY
           shellcheck -S warning /tmp/true-*.sh /tmp/false-*.sh
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: terraform-linters/setup-tflint@v6
       - run: tflint --init && tflint --recursive
 
   secret-scan:
