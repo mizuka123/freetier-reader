@@ -351,6 +351,18 @@ button,
   white-space: normal;
 }
 
+/* fieldset は既定で中身の最小幅より狭くならず、設定画面が横にはみ出すため解除する */
+fieldset {
+  min-inline-size: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+label,
+.form-label-row {
+  overflow-wrap: anywhere;
+}
+
 /* ---- 記事一覧・パネル ---- */
 .item,
 .panel {
