@@ -15,7 +15,7 @@ jobs:
       run:
         working-directory: services/x-webhook-rss
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -25,7 +25,7 @@ jobs:
     # テーマの色の組み合わせが WCAG 2.2 AA のコントラスト比を満たすこと
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -35,7 +35,7 @@ jobs:
     # 実際の Miniflux に apply-theme.sh でテーマを適用し、API で反映を確認する
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Prepare .env (Miniflux + PostgreSQL only)
         run: |
           cp .env.example .env
@@ -137,7 +137,7 @@ jobs:
     # PR でも Dockerfile をビルドし、起動して /healthz を確認する
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t x-webhook-rss:ci services/x-webhook-rss
       - name: Smoke test
         run: |
@@ -153,7 +153,7 @@ jobs:
   shell:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: shellcheck -S warning -x scripts/*.sh
       - name: init.sh generates secrets and reports missing values
         run: |
@@ -171,7 +171,7 @@ jobs:
   compose-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cp .env.example .env
       - run: docker compose --profile cloudflare --profile x --profile morss --profile rsshub config --quiet
 
@@ -181,8 +181,8 @@ jobs:
       run:
         working-directory: infra/terraform
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
       - run: terraform fmt -check -recursive
@@ -210,13 +210,13 @@ jobs:
                       open(f"/tmp/{au}-" + f["path"].rsplit("/", 1)[1], "w").write(f["content"])
           PY
           shellcheck -S warning /tmp/true-*.sh /tmp/false-*.sh
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: terraform-linters/setup-tflint@v6
       - run: tflint --init && tflint --recursive
 
   secret-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
@@ -232,15 +232,15 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: services/x-webhook-rss
           platforms: linux/amd64,linux/arm64
