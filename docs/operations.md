@@ -76,6 +76,35 @@ docker compose exec postgres psql -U miniflux -d postgres -c 'DROP DATABASE "min
 
 `--auto`（cron）では、**Miniflux / PostgreSQL のイメージが変わる更新は行わず通知のみ**にします（DB のマイグレーション後は旧版に戻せない可能性があるため）。通知を受けたら手動で `sudo ./scripts/update.sh` を実行してください。
 
+### 依存関係の更新方針
+
+| 対象 | 方針 |
+|---|---|
+| GitHub Actions | Dependabot が週 1 回、まとめて 1 つの PR にする。CI が通ればマージ |
+| コンテナイメージ（マイナー・パッチ） | Dependabot の PR を確認してマージ → `update.sh` |
+| Terraform プロバイダ | Dependabot の PR で CHANGELOG の破壊的変更を確認してからマージ |
+| Node.js のメジャー更新 | Dependabot では提案しない。新しいバージョンが LTS になってから、`services/x-webhook-rss/Dockerfile` と CI の `node-version` を揃えて手動で上げる |
+| PostgreSQL のメジャー更新 | Dependabot では提案しない。下記の手順で移行する |
+
+### PostgreSQL のメジャーバージョンを上げる
+
+メジャーバージョン間ではデータファイルの形式が異なるため、イメージを差し替えるだけでは起動しません。バックアップ（ダンプ）から新しい空の DB に復元します。
+
+1. 作業用ブランチで `compose.yml` の `postgres` イメージを新しいメジャーバージョン（tag@digest）に変更し、データ用の名前付きボリュームも新しい名前にする（例: `pg-data` → `pg18-data`）。
+   PostgreSQL 18 以降の公式イメージはデータの置き場所が `/var/lib/postgresql/<バージョン>/docker` に変わるため、マウント先は `/var/lib/postgresql` にする。
+2. PR を作り、ecc:review-pr と codex のプレモーテムを通してマージ
+3. VM 上で:
+
+   ```bash
+   cd /opt/freetier-reader
+   archive="$(sudo ./scripts/backup.sh | tail -n 1)"   # 旧バージョンでダンプ
+   sudo git pull --ff-only
+   sudo docker compose up -d --wait postgres            # 新バージョン（空のボリュームで初期化）
+   sudo ./scripts/restore.sh --yes "$archive"            # ダンプを復元して全サービスを起動
+   ```
+
+4. 動作を確認したら、古いボリュームを削除する（`docker volume ls` で名前を確認して `docker volume rm freetier-reader_pg-data`）
+
 ## 秘密値・設定を変更する
 
 | 変更したいもの | 手順 |

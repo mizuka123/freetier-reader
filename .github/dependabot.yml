@@ -1,19 +1,32 @@
 version: 2
 updates:
+  # GitHub Actions は 1 つの PR にまとめる
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
 
+  # PostgreSQL のメジャー更新はデータ移行（ダンプ→リストア）が必要なため自動では提案しない
+  # （手順: docs/operations.md「PostgreSQL のメジャーバージョンを上げる」）
   - package-ecosystem: docker-compose
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
 
+  # Node.js のメジャー更新は LTS になってから手動で判断する
   - package-ecosystem: docker
     directory: /services/x-webhook-rss
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: terraform
     directory: /infra/terraform
