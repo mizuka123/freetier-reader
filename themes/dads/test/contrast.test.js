@@ -1,5 +1,6 @@
 // テーマの色の組み合わせが WCAG 2.2 AA のコントラスト比を満たすか検証する。
-//   node --test themes/
+//   node --test "themes/**/*.test.js"
+// 検証するのは下の PAIRS に挙げた色の組み合わせのみ（テーマ全体の WCAG 適合を保証するものではない）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -12,16 +13,15 @@ function declarations(block) {
   return vars;
 }
 
-function rootBlock(source) {
-  const m = /:root\s*\{([^}]*)\}/.exec(source);
-  assert.ok(m, ':root block not found');
-  return m[1];
+function rootBlocks(source) {
+  return [...source.matchAll(/:root\s*\{([^}]*)\}/g)].map((m) => m[1]);
 }
 
-const darkMedia = /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{([\s\S]*?\})\s*\}/.exec(css);
-assert.ok(darkMedia, 'dark mode block not found');
-const lightVars = declarations(rootBlock(css.replace(darkMedia[0], '')));
-const darkVars = { ...lightVars, ...declarations(rootBlock(darkMedia[1])) };
+const darkMedia = /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]*)\}\s*\}/.exec(css);
+const lightRoots = rootBlocks(css.replace(darkMedia?.[0] ?? '', ''));
+const lightVars = declarations(lightRoots.join('\n'));
+const darkOverrides = declarations(darkMedia?.[1] ?? '');
+const darkVars = { ...lightVars, ...darkOverrides };
 
 function resolve(vars, name, depth = 0) {
   assert.ok(depth < 10, `circular var: ${name}`);
@@ -29,9 +29,9 @@ function resolve(vars, name, depth = 0) {
   assert.ok(value !== undefined, `undefined variable ${name}`);
   const ref = /^var\((--[\w-]+)\)$/.exec(value);
   if (ref) return resolve(vars, ref[1], depth + 1);
-  const hex = /#([0-9a-f]{6})\b/i.exec(value);
-  assert.ok(hex, `${name} is not a hex color: ${value}`);
-  return hex[1];
+  const hex = /^#([0-9a-f]{6})$/i.exec(value);
+  assert.ok(hex, `${name} must be a 6-digit hex color or var(): ${value}`);
+  return hex[1].toLowerCase();
 }
 
 function luminance(hex) {
@@ -47,18 +47,29 @@ function contrast(a, b) {
   return (l1 + 0.05) / (l2 + 0.05);
 }
 
+// 文字色を置く主な背景（本文・パネル・未読行・エラー行）
+const SURFACES = [
+  '--body-background',
+  '--panel-background',
+  '--feed-has-unread-background-color',
+  '--category-has-unread-background-color',
+  '--feed-parsing-error-background-color',
+];
+const TEXT_ON_SURFACES = [
+  '--body-color', '--title-color', '--link-color', '--link-hover-color', '--link-visited-color',
+  '--item-status-read-title-link-color', '--item-meta-li-color', '--item-meta-focus-color',
+  '--entry-header-title-link-color', '--counter-color',
+];
+
 // [前景, 背景, 必要なコントラスト比]（文字は 4.5、UI 部品の境界・フォーカス表示は 3）
 const PAIRS = [
-  ['--body-color', '--body-background', 4.5],
-  ['--title-color', '--body-background', 4.5],
-  ['--link-color', '--body-background', 4.5],
-  ['--link-hover-color', '--body-background', 4.5],
-  ['--link-visited-color', '--body-background', 4.5],
+  ...TEXT_ON_SURFACES.flatMap((fg) => SURFACES.map((bg) => [fg, bg, 4.5])),
   ['--header-link-color', '--body-background', 4.5],
   ['--header-active-link-color', '--body-background', 4.5],
   ['--page-header-title-color', '--body-background', 4.5],
   ['--table-th-color', '--table-th-background', 4.5],
   ['--table-tr-hover-color', '--table-tr-hover-background-color', 4.5],
+  ['--link-color', '--table-tr-hover-background-color', 4.5],
   ['--button-primary-color', '--button-primary-background', 4.5],
   ['--button-primary-color', '--button-primary-focus-background', 4.5],
   ['--input-color', '--input-background', 4.5],
@@ -71,31 +82,50 @@ const PAIRS = [
   ['--pagination-link-color', '--body-background', 4.5],
   ['--category-color', '--category-background-color', 4.5],
   ['--category-link-color', '--category-background-color', 4.5],
-  ['--item-status-read-title-link-color', '--body-background', 4.5],
-  ['--item-meta-li-color', '--body-background', 4.5],
-  ['--entry-header-title-link-color', '--body-background', 4.5],
   ['--entry-content-color', '--body-background', 4.5],
   ['--entry-content-quote-color', '--body-background', 4.5],
   ['--entry-content-code-color', '--entry-content-code-background', 4.5],
   ['--parsing-error-color', '--feed-parsing-error-background-color', 4.5],
-  ['--counter-color', '--body-background', 4.5],
   ['--keyboard-shortcuts-li-color', '--body-background', 4.5],
+  // 非テキスト（1.4.11）: 入力欄の枠、選択中の記事の枠
+  ['--ftr-input-border-color', '--input-background', 3],
+  ['--ftr-input-border-color', '--body-background', 3],
   ['--current-item-border-color', '--body-background', 3],
   ['--input-focus-border-color', '--input-background', 3],
-  ['--ftr-focus-outline', '--body-background', 3],
+  // フォーカス表示（2.4.7 / 2.4.13）: 外側の枠（要素から 2px 外）は周囲の背景と、
+  // 内側のリング（要素に接する）は枠および要素自体（主要ボタン）と区別できること
+  ...SURFACES.map((bg) => ['--ftr-focus-outline', bg, 3]),
+  ['--ftr-focus-ring', '--ftr-focus-outline', 3],
+  ['--ftr-focus-ring', '--button-primary-background', 3],
 ];
 
 for (const [mode, vars] of [['light', lightVars], ['dark', darkVars]]) {
   for (const [fg, bg, min] of PAIRS) {
     test(`${mode}: ${fg} on ${bg} >= ${min}:1`, () => {
-      const ratio = contrast(resolve(vars, fg), resolve(vars, bg));
-      assert.ok(ratio >= min, `${ratio.toFixed(2)}:1 (#${resolve(vars, fg)} on #${resolve(vars, bg)})`);
+      const [f, b] = [resolve(vars, fg), resolve(vars, bg)];
+      const ratio = contrast(f, b);
+      assert.ok(ratio >= min, `${ratio.toFixed(2)}:1 (#${f} on #${b})`);
     });
   }
 }
 
-test('フォーカスリング（黄）は枠（黒/白）と区別できる', () => {
-  for (const vars of [lightVars, darkVars]) {
-    assert.ok(contrast(resolve(vars, '--ftr-focus-ring'), resolve(vars, '--ftr-focus-outline')) >= 3);
-  }
+// ---- 解析そのものが壊れていないことの確認（壊れているとテストが素通りするため） ----
+
+test('ライトの :root は 1 つだけで、ダークの上書きブロックが解析できている', () => {
+  assert.equal(lightRoots.length, 1);
+  assert.ok(darkMedia, 'dark mode block not found');
+  assert.ok(Object.keys(darkOverrides).length >= 50, `dark overrides: ${Object.keys(darkOverrides).length}`);
+  assert.notEqual(resolve(lightVars, '--body-background'), resolve(darkVars, '--body-background'));
+});
+
+test('CSS 内で参照しているすべての var() が定義されている', () => {
+  const used = new Set([...css.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]));
+  const undefinedVars = [...used].filter((name) => !(name in lightVars));
+  assert.deepEqual(undefinedVars, []);
+});
+
+test('フォーカス表示と動きを減らす設定のルールがある', () => {
+  assert.match(css, /:focus-visible[\s\S]*?outline:\s*2px solid var\(--ftr-focus-outline\)/);
+  assert.match(css, /box-shadow:\s*0 0 0 4px var\(--ftr-focus-ring\)/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });

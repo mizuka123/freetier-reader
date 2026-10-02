@@ -1,5 +1,5 @@
 /*
- * freetier-reader: デジタル庁デザインシステム（DADS）を参考にした Miniflux テーマ
+ * freetier-reader: デジタル庁デザインシステム（DADS）のデザイントークンを参考にした非公式の Miniflux テーマ
  *
  * - 色・タイポグラフィ・角丸・影は @digital-go-jp/design-tokens v2.0.1 の値を使用
  *   (c) 2023 デジタル庁, MIT License — themes/dads/LICENSE-design-tokens を参照
@@ -14,7 +14,6 @@
   --dads-white: #ffffff;
   --dads-black: #000000;
   --dads-gray-50: #f2f2f2;
-  --dads-gray-100: #e6e6e6;
   --dads-gray-200: #cccccc;
   --dads-gray-300: #b3b3b3;
   --dads-gray-420: #949494;
@@ -24,7 +23,6 @@
   --dads-gray-800: #333333;
   --dads-gray-900: #1a1a1a;
   --dads-blue-50: #e8f1fe;
-  --dads-blue-100: #d9e6ff;
   --dads-blue-200: #c5d7fb;
   --dads-blue-300: #9db7f9;
   --dads-blue-900: #0017c1;
@@ -81,7 +79,8 @@
   --button-primary-focus-border-color: var(--dads-blue-1100);
   --button-primary-focus-background: var(--dads-blue-1000);
 
-  --input-border: 1px solid var(--dads-gray-600);
+  --ftr-input-border-color: var(--dads-gray-600);
+  --input-border: 1px solid var(--ftr-input-border-color);
   --input-background: var(--dads-white);
   --input-color: var(--dads-gray-900);
   --input-placeholder-color: var(--dads-gray-536);
@@ -194,7 +193,8 @@
     --button-primary-focus-border-color: var(--dads-blue-200);
     --button-primary-focus-background: var(--dads-blue-200);
 
-    --input-border: 1px solid var(--dads-gray-420);
+    --ftr-input-border-color: var(--dads-gray-300);
+    --input-border: 1px solid var(--ftr-input-border-color);
     --input-background: var(--dads-gray-800);
     --input-color: var(--dads-white);
     --input-placeholder-color: var(--dads-gray-300);
@@ -226,11 +226,12 @@
     --category-link-color: var(--dads-light-blue-200);
     --category-link-hover-color: var(--dads-white);
 
+    /* 補助的な文字はパネル・未読行（Gray 800）上でも 4.5:1 を満たす Gray 300 */
     --item-border-color: var(--dads-gray-700);
-    --item-status-read-title-link-color: var(--dads-gray-420);
+    --item-status-read-title-link-color: var(--dads-gray-300);
     --item-status-read-title-focus-color: var(--dads-gray-200);
     --item-meta-focus-color: var(--dads-gray-200);
-    --item-meta-li-color: var(--dads-gray-420);
+    --item-meta-li-color: var(--dads-gray-300);
     --current-item-border-color: var(--dads-light-blue-300);
     --current-item-box-shadow: none;
 
@@ -254,7 +255,7 @@
     --category-has-unread-border-color: var(--dads-gray-600);
 
     --keyboard-shortcuts-li-color: var(--dads-gray-50);
-    --counter-color: var(--dads-gray-420);
+    --counter-color: var(--dads-gray-300);
 
     /* 暗い背景では黄色を外側の枠にし、内側を黒にして要素との境界を保つ */
     --ftr-focus-outline: var(--dads-yellow-300);

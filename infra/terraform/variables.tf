@@ -259,7 +259,7 @@ variable "admin_username" {
 }
 
 variable "miniflux_theme" {
-  description = "画面テーマ（dads: デジタル庁デザインシステムを参考にしたテーマ / none: Miniflux 標準）"
+  description = "画面テーマ（dads: デジタル庁デザインシステムを参考にした非公式テーマ / none: 適用しない）"
   type        = string
   default     = "dads"
   validation {

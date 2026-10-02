@@ -14,8 +14,9 @@
 crash.log
 *.tfplan
 
-# バックアップ
+# バックアップ・実行時の状態
 backups/
+.state/
 
 # Node
 node_modules/

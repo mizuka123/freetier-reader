@@ -44,24 +44,87 @@ jobs:
                  -e 's/^CLOUDFLARE_TUNNEL_TOKEN=CHANGE_ME$/CLOUDFLARE_TUNNEL_TOKEN=unused/' .env
           bash scripts/init.sh
       - run: docker compose up -d --wait postgres miniflux
-      - name: Apply and verify
+      - name: Apply and verify via API
         shell: bash
         run: |
           set -euo pipefail
           set -a; source .env; set +a
-          me() { curl -fsS -u "${ADMIN_USERNAME}:${ADMIN_PASSWORD}" http://127.0.0.1:8080/v1/me; }
+          admin_pw="$ADMIN_PASSWORD"
+          me() { curl -fsS -u "${ADMIN_USERNAME}:${admin_pw}" http://127.0.0.1:8080/v1/me; }
+          check() { me | python3 -c "import json,sys; u=json.load(sys.stdin); css=open('themes/dads/miniflux.css',encoding='utf-8').read(); assert $1, {k: (v[:80] if isinstance(v, str) else v) for k, v in u.items() if k in ('theme','stylesheet','external_font_hosts','language','timezone')}"; }
+          setenv() { grep -q "^$1=" .env || { echo "missing $1 in .env"; exit 1; }; sed -i "s|^$1=.*|$1=$2|" .env; }
+          language_before="$(me | python3 -c 'import json,sys; print(json.load(sys.stdin)["language"])')"
 
+          echo "--- dads (basic auth)"
           bash scripts/apply-theme.sh
-          me | python3 -c 'import json,sys; u=json.load(sys.stdin); assert u["theme"]=="system_sans_serif", u["theme"]; assert "--dads-blue-900" in u["stylesheet"]; assert u["external_font_hosts"]==""'
+          check 'u["theme"]=="system_sans_serif" and u["stylesheet"].strip()==css.strip()'
+          check "u['language']=='${language_before}'"
+          test -f .state/theme-before-dads.json
+          bash scripts/apply-theme.sh   # 冪等
+          check 'u["stylesheet"].strip()==css.strip()'
 
-          sed -i 's/^MINIFLUX_THEME_WEB_FONT=.*/MINIFLUX_THEME_WEB_FONT=true/' .env
+          echo "--- web font"
+          setenv MINIFLUX_THEME_WEB_FONT true
           bash scripts/apply-theme.sh
-          me | python3 -c 'import json,sys; u=json.load(sys.stdin); assert u["stylesheet"].startswith("@import"); assert "fonts.gstatic.com" in u["external_font_hosts"]'
+          check 'u["stylesheet"].startswith("@import") and u["stylesheet"].rstrip().endswith(css.rstrip()[-40:]) and u["external_font_hosts"]=="fonts.googleapis.com fonts.gstatic.com" and u["theme"]=="system_sans_serif"'
+          setenv MINIFLUX_THEME_WEB_FONT false
+          bash scripts/apply-theme.sh
+          check 'not u["stylesheet"].startswith("@import")'
 
+          echo "--- API key auth (password intentionally wrong)"
+          token="$(openssl rand -hex 24)"
+          docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U miniflux -d miniflux \
+            -c "INSERT INTO api_keys (user_id, token, description) SELECT id, '${token}', 'ci' FROM users WHERE username = '${ADMIN_USERNAME}';"
+          setenv MINIFLUX_API_KEY "$token"
+          setenv ADMIN_PASSWORD wrong-password
+          bash scripts/apply-theme.sh
+          check 'u["stylesheet"].strip()==css.strip()'
+
+          echo "--- error paths"
+          setenv MINIFLUX_API_KEY invalid-token
+          if bash scripts/apply-theme.sh; then echo "expected failure with invalid API key"; exit 1; fi
+          test -f .state/theme.failed
+          setenv MINIFLUX_API_KEY "$token"
+          setenv MINIFLUX_THEME foo
+          if bash scripts/apply-theme.sh; then echo "expected failure with unknown theme"; exit 1; fi
+          setenv MINIFLUX_THEME dads
+          bash scripts/apply-theme.sh
+          test ! -f .state/theme.failed
+
+          echo "--- none does not touch user settings"
+          curl -fsS -X PUT -H "X-Auth-Token: ${token}" -H 'Content-Type: application/json' \
+            --data '{"stylesheet": "/* user css */", "theme": "dark_serif"}' \
+            "http://127.0.0.1:8080/v1/users/$(me | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" >/dev/null
+          setenv MINIFLUX_THEME none
+          bash scripts/apply-theme.sh
+          check 'u["stylesheet"]=="/* user css */" and u["theme"]=="dark_serif"'
+
+          echo "--- reset restores the settings before dads"
+          setenv MINIFLUX_THEME dads
           bash scripts/apply-theme.sh --reset
-          me | python3 -c 'import json,sys; u=json.load(sys.stdin); assert u["stylesheet"]=="" and u["theme"]=="light_serif"'
+          check 'u["stylesheet"]=="" and u["theme"]=="light_serif"'
+          test ! -f .state/theme-before-dads.json
+
+          echo "--- re-apply for the browser checks"
+          setenv ADMIN_PASSWORD "$admin_pw"
+          bash scripts/apply-theme.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Browser checks (Playwright)
+        shell: bash
+        working-directory: themes/dads/test
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null
+          npm install --no-save --no-audit --no-fund playwright@1
+          npx playwright install --with-deps chromium
+          set -a; source ../../../.env; set +a
+          MINIFLUX_URL=http://localhost:8080 node browser.e2e.mjs
       - if: failure()
-        run: docker compose logs miniflux
+        run: |
+          docker compose ps -a
+          docker compose logs postgres miniflux
 
   service-image:
     # PR でも Dockerfile をビルドし、起動して /healthz を確認する

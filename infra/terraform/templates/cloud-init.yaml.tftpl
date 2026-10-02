@@ -172,8 +172,8 @@ write_files:
       cd /opt/freetier-reader
       retry docker compose pull --ignore-buildable
       docker compose up -d --build --wait
-      # 画面テーマ（失敗しても構築は続行。後から scripts/apply-theme.sh で再実行できる）
-      ./scripts/apply-theme.sh || echo "WARNING: theme was not applied; run scripts/apply-theme.sh later"
+      # 画面テーマ（失敗しても構築は続行。.state/theme.failed を monitor.sh が通知する）
+      retry ./scripts/apply-theme.sh || echo "WARNING: theme was not applied; run scripts/apply-theme.sh later"
 
       rm -f "$STATE/bootstrap.failed"
       touch "$STATE/bootstrap.ok"
