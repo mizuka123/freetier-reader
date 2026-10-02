@@ -17,49 +17,49 @@ Docker と Docker Compose が動く Linux サーバならどこでも構築で�
 
 ## 2. Cloudflare Access を設定する
 
-1. Access → Applications → Add → Self-hosted
+1. Settings → Authentication → Login methods に「One-time PIN」を追加（未設定の場合）
+2. Access → Applications → Add → Self-hosted
    - ドメイン: `reader.example.com`、セッション時間: 1 month
    - ポリシー: Allow / Include: Emails = 自分のメール
-2. もう 1 つ Self-hosted アプリを追加（同期 API と Webhook をバイパス）
+3. もう 1 つ Self-hosted アプリを追加（同期 API と Webhook をバイパス）
    - パス: `/v1`、`/reader`、`/accounts/ClientLogin`、`/fever`、`/hook/x`
    - ポリシー: Bypass / Include: Everyone
-3. （推奨）WAF → Rate limiting rules と Custom rules で、同期 API パスにレート制限と国別制限を設定（[terraform.md](terraform.md) の Terraform 定義が参考になります）
+4. WAF で次を設定（Free プランで可。Terraform の定義は `infra/terraform/modules/cloudflare/main.tf`）
+   - Rate limiting rule: 上記 5 パスに 10 秒あたり 50 リクエスト（同一 IP）
+   - Custom rule: 同期 API の 4 パス（`/hook/x` 以外）を日本以外からブロック
 
 ## 3. 起動
 
 ```bash
 git clone https://github.com/mizuka123/freetier-reader.git
 cd freetier-reader
-./scripts/init.sh
-vi .env   # READER_HOSTNAME, CLOUDFLARE_TUNNEL_TOKEN, X_ALLOWED_USERS を設定
-docker compose up -d
+./scripts/init.sh          # 秘密値を生成。手で設定すべき値が残っていれば一覧を表示して終了コード 2
+vi .env                    # READER_HOSTNAME, CLOUDFLARE_TUNNEL_TOKEN, X_ALLOWED_USERS などを設定
+./scripts/init.sh          # "env is ready" になることを確認
+docker compose up -d --build --wait
 docker compose ps
 ```
 
 Cloudflare を使わない場合は `COMPOSE_PROFILES` から `cloudflare` を外し、
 前段に HTTPS 終端するリバースプロキシ（Caddy など）を置いてください。
 
-## 4. バックアップ
+> Miniflux はコンテナ内部のフィード（rss-bridge / x-webhook-rss）を取得するため `FETCHER_ALLOW_PRIVATE_NETWORKS=1` で動かしています。
+> クラウドの VM では、コンテナからメタデータサーバ（169.254.169.254）や内部ネットワークへの通信をファイアウォールで遮断してください
+> （Terraform 構築では `infra/terraform/templates/cloud-init.yaml.tftpl` の egress guard が自動設定します）。
 
-```bash
-./scripts/backup.sh                     # backups/ に保存（7 世代）
-# cron 例: 毎日 03:30
-# 30 3 * * * /path/to/freetier-reader/scripts/backup.sh
+## 4. cron
+
+```cron
+# バックアップ: 毎日 03:30
+30 3 * * * root /path/to/freetier-reader/scripts/backup.sh >> /var/log/freetier-reader-backup.log 2>&1
+# 監視: 10 分ごと（HEALTHCHECK_PING_URL を設定）
+*/10 * * * * root /path/to/freetier-reader/scripts/monitor.sh >> /var/log/freetier-reader-monitor.log 2>&1
 ```
 
-リストア:
-
-```bash
-tar -xzf backups/<stamp>.tar.gz -C /tmp
-docker compose exec -T postgres pg_restore -U miniflux -d miniflux --clean < /tmp/<stamp>/miniflux.dump
-docker compose cp /tmp/<stamp>/x-webhook-rss.db x-webhook-rss:/data/x-webhook-rss.db
-docker compose restart x-webhook-rss
-```
+バックアップ・リストア・更新・秘密値の変更は [operations.md](operations.md) を参照してください。
 
 ## 5. 更新
 
 ```bash
-git pull
-docker compose pull
-docker compose up -d
+./scripts/update.sh   # バックアップ → git pull → pull/build → up --wait（失敗時は自動ロールバック）
 ```

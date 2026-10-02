@@ -1,10 +1,11 @@
 terraform {
-  required_version = ">= 1.6"
+  # 変数バリデーションで他の変数を参照するため 1.9 以上
+  required_version = ">= 1.9, < 2.0"
 
   required_providers {
     oci = {
       source  = "oracle/oci"
-      version = ">= 6.0, < 8.0"
+      version = "~> 7.0"
     }
     cloudflare = {
       source  = "cloudflare/cloudflare"

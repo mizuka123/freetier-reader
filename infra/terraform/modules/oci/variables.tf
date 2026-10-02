@@ -14,6 +14,10 @@ variable "region" {
   type = string
 }
 
+variable "vcn_cidr" {
+  type = string
+}
+
 variable "availability_domain_index" {
   type = number
 }
@@ -30,12 +34,20 @@ variable "boot_volume_gb" {
   type = number
 }
 
+variable "data_volume_gb" {
+  type = number
+}
+
 variable "ssh_public_key" {
   type = string
 }
 
-variable "ssh_allowed_cidr" {
-  type = string
+variable "bastion_client_cidrs" {
+  type = list(string)
+}
+
+variable "backup_retention_days" {
+  type = number
 }
 
 variable "budget_amount" {

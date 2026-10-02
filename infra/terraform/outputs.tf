@@ -19,13 +19,27 @@ output "ifttt_webhook_url" {
   sensitive   = true
 }
 
+output "env_file" {
+  description = "VM の /opt/freetier-reader/.env と同じ内容（設定変更を VM に反映するときに使う。docs/terraform.md）"
+  value       = local.env_file
+  sensitive   = true
+}
+
 output "instance_id" {
   value = module.oci.instance_id
 }
 
-output "instance_public_ip" {
-  description = "受信ポートは全閉のため、通常は直接アクセスしない"
-  value       = module.oci.instance_public_ip
+output "instance_private_ip" {
+  description = "Bastion のポートフォワーディングセッションの接続先"
+  value       = module.oci.instance_private_ip
+}
+
+output "bastion_id" {
+  value = module.oci.bastion_id
+}
+
+output "data_volume_id" {
+  value = module.oci.data_volume_id
 }
 
 output "backup_bucket" {

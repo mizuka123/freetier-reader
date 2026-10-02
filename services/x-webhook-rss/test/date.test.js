@@ -16,6 +16,21 @@ test('ISO 8601 はそのまま解釈する', () => {
   assert.equal(parseCreatedAt('2026-10-02T01:02:03Z').toISOString(), '2026-10-02T01:02:03.000Z');
 });
 
+test('ISO 8601 のオフセット付きも解釈する', () => {
+  assert.equal(parseCreatedAt('2026-10-02T09:00:00+09:00').toISOString(), '2026-10-02T00:00:00.000Z');
+});
+
+test('存在しない日付・時刻は null', () => {
+  assert.equal(parseCreatedAt('February 31, 2026 at 10:00AM', '+09:00'), null);
+  assert.equal(parseCreatedAt('January 05, 2026 at 13:00PM', '+09:00'), null);
+  assert.equal(parseCreatedAt('January 05, 2026 at 00:30AM', '+09:00'), null);
+  assert.equal(parseCreatedAt('Smarch 05, 2026 at 10:00AM', '+09:00'), null);
+});
+
+test('日付が UTC で前日になるケースも正しく判定する', () => {
+  assert.equal(parseCreatedAt('March 01, 2026 at 02:00AM', '+09:00').toISOString(), '2026-02-28T17:00:00.000Z');
+});
+
 test('解釈できない値は null', () => {
   assert.equal(parseCreatedAt(''), null);
   assert.equal(parseCreatedAt('yesterday'), null);

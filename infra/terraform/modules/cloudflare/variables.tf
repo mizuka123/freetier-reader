@@ -24,6 +24,10 @@ variable "allowed_emails" {
   type = list(string)
 }
 
+variable "create_otp_login_method" {
+  type = bool
+}
+
 variable "session_duration" {
   type = string
 }

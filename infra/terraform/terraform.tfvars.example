@@ -7,15 +7,18 @@ tenancy_ocid       = "ocid1.tenancy.oc1..xxxxxxxxxxxxxxxx"
 # compartment_ocid = "ocid1.compartment.oc1..xxxxxxxxxxxxxxxx"
 budget_alert_email = "you@example.com"
 
+# 障害時の復旧に使う SSH 公開鍵（必須。接続は OCI Bastion 経由、docs/terraform.md）
+ssh_public_key = "ssh-ed25519 AAAA... you@example"
+# Bastion セッションを作れる接続元（既定は全許可。SSH 鍵認証は別途必要）
+# bastion_client_cidrs = ["203.0.113.10/32"]
+
 # A1 の在庫切れ時は 1, 2 を試す（AD が複数あるリージョンのみ）
 # availability_domain_index = 0
 # instance_ocpus     = 2
 # instance_memory_gb = 12
 # boot_volume_gb     = 50
-
-# SSH は既定で全閉。必要なときだけ自宅 IP を許可する
-# ssh_public_key   = "ssh-ed25519 AAAA... you@example"
-# ssh_allowed_cidr = "203.0.113.10/32"
+# data_volume_gb     = 50   # boot + data <= 200GB（Always Free）
+# backup_retention_days = 30
 
 # ---- Cloudflare ----
 # 環境変数 TF_VAR_cloudflare_api_token で渡すことを推奨
@@ -24,9 +27,17 @@ cloudflare_account_id = "0123456789abcdef0123456789abcdef"
 cloudflare_zone_id    = "0123456789abcdef0123456789abcdef"
 reader_hostname       = "reader.example.com"
 allowed_emails        = ["you@example.com"]
+# 既に Zero Trust に One-time PIN のログイン方式がある場合は false
+# create_otp_login_method = true
 # api_allowed_countries = ["JP"]
 
 # ---- アプリ ----
 # フォークした場合は自分のリポジトリに変更
 # repo_url = "https://github.com/<you>/freetier-reader.git"
 x_allowed_users = ["example_user1", "example_user2"]
+# x_stale_hours = 72
+# auto_update   = false
+
+# ---- 監視（任意。Healthchecks.io などで作った ping URL） ----
+# healthcheck_ping_url = "https://hc-ping.com/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# backup_ping_url      = "https://hc-ping.com/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"

@@ -1,11 +1,13 @@
 #cloud-config
-# VM 初回起動時に Docker を入れ、リポジトリを clone して compose で起動する。
+# VM 初回起動時の構築。処理本体は /usr/local/sbin/freetier-reader-bootstrap.sh（失敗時は検知・通知する）。
 package_update: true
 packages:
   - docker.io
   - docker-compose-v2
   - git
   - cron
+  - curl
+  - unattended-upgrades
 
 write_files:
   - path: /root/freetier-reader.env
@@ -13,32 +15,145 @@ write_files:
     content: ${env_file_b64}
     permissions: "0600"
 
-  # コンテナからインスタンスメタデータ（169.254.0.0/16）と VCN 内部への通信を遮断（SSRF 対策）
+  # コンテナからインスタンスメタデータ（169.254.0.0/16）と VCN 内部への通信を遮断（SSRF 対策）。
+  # Docker より先に DOCKER-USER チェーンへルールを入れ、コンテナ起動時には必ず有効にしておく。
+  - path: /usr/local/sbin/freetier-reader-egress-guard.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eu
+      iptables -N DOCKER-USER 2>/dev/null || true
+      for dst in 169.254.0.0/16 ${vcn_cidr}; do
+        iptables -C DOCKER-USER -d "$dst" -j DROP 2>/dev/null || iptables -I DOCKER-USER -d "$dst" -j DROP
+        iptables -C DOCKER-USER -d "$dst" -j DROP
+      done
+
   - path: /etc/systemd/system/freetier-reader-egress-guard.service
     content: |
       [Unit]
       Description=Block container access to instance metadata and VCN
-      After=docker.service
-      Requires=docker.service
+      Before=docker.service
 
       [Service]
       Type=oneshot
       RemainAfterExit=yes
-      ExecStart=/bin/sh -c 'iptables -C DOCKER-USER -d 169.254.0.0/16 -j DROP 2>/dev/null || iptables -I DOCKER-USER -d 169.254.0.0/16 -j DROP'
-      ExecStart=/bin/sh -c 'iptables -C DOCKER-USER -d 10.0.0.0/16 -j DROP 2>/dev/null || iptables -I DOCKER-USER -d 10.0.0.0/16 -j DROP'
+      ExecStart=/usr/local/sbin/freetier-reader-egress-guard.sh
 
       [Install]
       WantedBy=multi-user.target
+      RequiredBy=docker.service
 
-  # 毎日 03:30 JST（18:30 UTC）にバックアップ
-  - path: /etc/cron.d/freetier-reader-backup
+  # OS のセキュリティ更新は自動適用、必要なら 04:30 JST（19:30 UTC）に自動再起動
+  - path: /etc/apt/apt.conf.d/52freetier-reader
     content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "19:30";
+
+  - path: /etc/cron.d/freetier-reader
+    content: |
+      # バックアップ: 毎日 03:30 JST（18:30 UTC）
       30 18 * * * root /opt/freetier-reader/scripts/backup.sh >> /var/log/freetier-reader-backup.log 2>&1
+      # 監視: 10 分ごと
+      */10 * * * * root /opt/freetier-reader/scripts/monitor.sh >> /var/log/freetier-reader-monitor.log 2>&1
+%{ if auto_update ~}
+      # 自動更新: 毎週日曜 04:00 JST（土曜 19:00 UTC）
+      0 19 * * 6 root /opt/freetier-reader/scripts/update.sh >> /var/log/freetier-reader-update.log 2>&1
+%{ endif ~}
+
+  - path: /etc/logrotate.d/freetier-reader
+    content: |
+      /var/log/freetier-reader-*.log {
+        weekly
+        rotate 8
+        compress
+        missingok
+        notifempty
+      }
+
+  - path: /usr/local/sbin/freetier-reader-bootstrap.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -Eeuo pipefail
+      exec > >(tee -a /var/log/freetier-reader-bootstrap.log) 2>&1
+
+      PING_URL='${healthcheck_ping_url}'
+      MOUNT='${data_mount}'
+      STATE=/var/lib/freetier-reader
+      mkdir -p "$STATE"
+
+      fail() {
+        echo "BOOTSTRAP FAILED at line $1"
+        touch "$STATE/bootstrap.failed"
+        if [ -n "$PING_URL" ]; then
+          tail -n 50 /var/log/freetier-reader-bootstrap.log | curl -fsS -m 10 --retry 3 -o /dev/null --data-binary @- "$PING_URL/fail" || true
+        fi
+      }
+      trap 'fail $LINENO' ERR
+
+      retry() {
+        local n
+        for n in 1 2 3 4 5; do
+          "$@" && return 0
+          echo "retry $n/5: $*"
+          sleep $((n * 15))
+        done
+        return 1
+      }
+
+      # ---- データ用ブロックボリューム（アタッチ完了まで最大 15 分待つ） ----
+      find_data_disk() {
+        local d
+        if [ -e /dev/disk/by-label/ftr-data ]; then readlink -f /dev/disk/by-label/ftr-data; return 0; fi
+        for d in $(lsblk -dpno NAME,TYPE | awk '$2 == "disk" { print $1 }'); do
+          # マウント済み・パーティションあり・ファイルシステムありのディスクは対象外
+          lsblk -no MOUNTPOINTS "$d" | grep -q . && continue
+          [ "$(lsblk -no NAME "$d" | wc -l)" -eq 1 ] || continue
+          blkid "$d" >/dev/null 2>&1 && continue
+          echo "$d"; return 0
+        done
+        return 1
+      }
+      for _ in $(seq 1 90); do
+        disk="$(find_data_disk || true)"
+        [ -n "$disk" ] && break
+        sleep 10
+      done
+      [ -n "$${disk:-}" ] || { echo "data volume not found"; false; }
+      if ! blkid "$disk" >/dev/null 2>&1; then
+        mkfs.ext4 -q -L ftr-data "$disk"
+      fi
+      mkdir -p "$MOUNT"
+      grep -q 'LABEL=ftr-data' /etc/fstab || echo "LABEL=ftr-data $MOUNT ext4 defaults,nofail,_netdev 0 2" >> /etc/fstab
+      mountpoint -q "$MOUNT" || mount "$MOUNT"
+      mkdir -p "$MOUNT/docker" "$MOUNT/backups"
+
+      # ---- Docker（データはデータボリュームに置く） ----
+      systemctl daemon-reload
+      systemctl enable --now freetier-reader-egress-guard.service
+      mkdir -p /etc/docker
+      printf '{\n  "data-root": "%s/docker",\n  "log-driver": "local"\n}\n' "$MOUNT" > /etc/docker/daemon.json
+      systemctl restart docker
+      systemctl enable docker
+
+      # ---- アプリ ----
+      if [ ! -d /opt/freetier-reader/.git ]; then
+        retry git clone --branch '${repo_ref}' '${repo_url}' /opt/freetier-reader
+      fi
+      if [ -f /root/freetier-reader.env ]; then
+        install -m 600 /root/freetier-reader.env /opt/freetier-reader/.env
+        rm -f /root/freetier-reader.env
+      fi
+      cd /opt/freetier-reader
+      retry docker compose pull --ignore-buildable
+      docker compose up -d --build --wait
+
+      rm -f "$STATE/bootstrap.failed"
+      touch "$STATE/bootstrap.ok"
+      echo "BOOTSTRAP OK"
+      [ -z "$PING_URL" ] || curl -fsS -m 10 --retry 3 -o /dev/null "$PING_URL" || true
 
 runcmd:
-  - systemctl enable --now docker
-  - systemctl enable --now freetier-reader-egress-guard.service
-  - git clone --branch ${repo_ref} ${repo_url} /opt/freetier-reader
-  - mv /root/freetier-reader.env /opt/freetier-reader/.env
-  - chmod +x /opt/freetier-reader/scripts/*.sh
-  - cd /opt/freetier-reader && docker compose pull --ignore-buildable --ignore-pull-failures && docker compose up -d
+  - [/usr/local/sbin/freetier-reader-bootstrap.sh]

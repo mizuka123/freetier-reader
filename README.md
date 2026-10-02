@@ -7,6 +7,7 @@
 - **X（旧Twitter）** … IFTTT の公式連携で投稿を受け取り、アカウント別フィード化
 - **ログイン認証** … Cloudflare Access + Miniflux（パスキー / TOTP）。スマホ・タブレットのアプリは同期 API で初回設定のみ
 - **IaC** … Terraform で OCI と Cloudflare を一括構築
+- **運用** … 毎日のバックアップ（OCI Object Storage へ 30 日）、死活監視（Healthchecks.io 等）、OS 自動更新、失敗時ロールバック付きの更新スクリプト
 
 > English: A self-hosted RSS reader stack for cloud free tiers. Miniflux + RSS-Bridge + an IFTTT-to-Atom bridge for X, published via Cloudflare Tunnel/Access, provisioned with Terraform (OCI + Cloudflare). MIT licensed.
 
@@ -66,7 +67,7 @@ git clone https://github.com/mizuka123/freetier-reader.git
 cd freetier-reader
 ./scripts/init.sh          # .env を作成し秘密値を自動生成
 vi .env                    # READER_HOSTNAME / CLOUDFLARE_TUNNEL_TOKEN などを設定
-docker compose up -d
+docker compose up -d --build --wait
 ```
 
 詳細: [docs/manual-setup.md](docs/manual-setup.md)
@@ -80,6 +81,7 @@ docker compose up -d
 | [docs/ifttt.md](docs/ifttt.md) | IFTTT で X の投稿を受け取る設定 |
 | [docs/sources.md](docs/sources.md) | RSS のないサイトのフィード化（例: スポーツ報知） |
 | [docs/apps.md](docs/apps.md) | Android / iPhone / iPad / ブラウザでの利用 |
+| [docs/operations.md](docs/operations.md) | 監視・バックアップ/リストア・更新・秘密値の変更・初回確認チェックリスト |
 
 ## 個人設定の管理
 

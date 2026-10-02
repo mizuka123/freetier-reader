@@ -7,21 +7,21 @@ terraform {
 }
 
 locals {
-  # Cloudflare Access の対象外にするパス（ネイティブアプリの同期 API と IFTTT Webhook）
-  #   /v1                    Miniflux API
-  #   /reader, /accounts     Google Reader API（ログインは /accounts/ClientLogin）
-  #   /fever                 Fever API
-  #   /hook/x                IFTTT Webhook（URL 内トークンで認証）
-  bypass_paths = ["/v1", "/reader", "/accounts/ClientLogin", "/fever", "/hook/x"]
+  # Cloudflare Access の対象外にするパス（Access のパス指定は配下のパスも含む）
+  #   /v1                     Miniflux API
+  #   /reader                 Google Reader API
+  #   /accounts/ClientLogin   Google Reader API のログイン
+  #   /fever                  Fever API
+  sync_api_paths = ["/v1", "/reader", "/accounts/ClientLogin", "/fever"]
+  #   /hook/x                 IFTTT Webhook（URL 内トークンで認証）
+  hook_path    = "/hook/x"
+  bypass_paths = concat(local.sync_api_paths, [local.hook_path])
 
-  host_expr = "http.host eq \"${var.hostname}\""
-  api_path_expr = join(" or ", [
-    "starts_with(http.request.uri.path, \"/v1/\")",
-    "starts_with(http.request.uri.path, \"/reader/\")",
-    "starts_with(http.request.uri.path, \"/accounts/ClientLogin\")",
-    "starts_with(http.request.uri.path, \"/fever\")",
-  ])
-  country_set = join(" ", [for c in var.api_allowed_countries : "\"${c}\""])
+  # WAF の式も同じパス一覧から作り、Access のバイパス範囲と一致させる
+  host_expr     = "http.host eq \"${var.hostname}\""
+  sync_api_expr = join(" or ", [for p in local.sync_api_paths : "starts_with(http.request.uri.path, \"${p}\")"])
+  bypass_expr   = join(" or ", [for p in local.bypass_paths : "starts_with(http.request.uri.path, \"${p}\")"])
+  country_set   = join(" ", [for c in var.api_allowed_countries : "\"${c}\""])
 }
 
 # ---- Tunnel ----
@@ -37,10 +37,11 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "this" {
   tunnel_id  = cloudflare_zero_trust_tunnel_cloudflared.this.id
 
   config = {
+    # 上から順に評価される
     ingress = [
       {
         hostname = var.hostname
-        path     = "^/hook/x/"
+        path     = "^${local.hook_path}/"
         service  = "http://x-webhook-rss:8080"
       },
       {
@@ -69,6 +70,15 @@ resource "cloudflare_dns_record" "reader" {
 }
 
 # ---- Access ----
+# ログイン方式: メールのワンタイムコード（新規の Zero Trust 組織では未設定のことがあるため作成する）
+resource "cloudflare_zero_trust_access_identity_provider" "otp" {
+  count      = var.create_otp_login_method ? 1 : 0
+  account_id = var.account_id
+  name       = "One-time PIN"
+  type       = "onetimepin"
+  config     = {}
+}
+
 resource "cloudflare_zero_trust_access_policy" "allow_owner" {
   account_id       = var.account_id
   name             = "${var.name}-allow-owner"
@@ -92,6 +102,7 @@ resource "cloudflare_zero_trust_access_application" "ui" {
   domain           = var.hostname
   destinations     = [{ type = "public", uri = var.hostname }]
   session_duration = var.session_duration
+  allowed_idps     = var.create_otp_login_method ? [cloudflare_zero_trust_access_identity_provider.otp[0].id] : null
   policies         = [{ id = cloudflare_zero_trust_access_policy.allow_owner.id, precedence = 1 }]
 }
 
@@ -105,7 +116,7 @@ resource "cloudflare_zero_trust_access_application" "api_bypass" {
   policies     = [{ id = cloudflare_zero_trust_access_policy.bypass.id, precedence = 1 }]
 }
 
-# ---- WAF（Free プランの範囲: レート制限 1 ルール / 期間 10 秒） ----
+# ---- WAF（Free プランの範囲: レート制限 1 ルール / 期間 10 秒、カスタムルール 5 つ） ----
 # 注意: zone 単位のエントリポイント ruleset はフェーズごとに 1 つ。既存ルールがあるゾーンでは import が必要。
 resource "cloudflare_ruleset" "api_ratelimit" {
   zone_id = var.zone_id
@@ -113,10 +124,11 @@ resource "cloudflare_ruleset" "api_ratelimit" {
   kind    = "zone"
   phase   = "http_ratelimit"
 
+  # Access をバイパスするパス（同期 API + Webhook）すべてに適用
   rules = [{
     ref         = "freetier_reader_api_ratelimit"
-    description = "Rate limit sync API (Access bypassed paths)"
-    expression  = "(${local.host_expr}) and (${local.api_path_expr})"
+    description = "Rate limit Access-bypassed paths (sync API and webhook)"
+    expression  = "(${local.host_expr}) and (${local.bypass_expr})"
     action      = "block"
     ratelimit = {
       characteristics     = ["ip.src", "cf.colo.id"]
@@ -133,11 +145,11 @@ resource "cloudflare_ruleset" "api_geo" {
   kind    = "zone"
   phase   = "http_request_firewall_custom"
 
-  # IFTTT（海外のサーバから送信）を止めないよう /hook/x は対象外
+  # IFTTT（海外のサーバから送信）を止めないよう Webhook は国別制限の対象外
   rules = [{
     ref         = "freetier_reader_api_geo"
     description = "Block sync API outside allowed countries"
-    expression  = "(${local.host_expr}) and (${local.api_path_expr}) and not (ip.src.country in {${local.country_set}})"
+    expression  = "(${local.host_expr}) and (${local.sync_api_expr}) and not (ip.src.country in {${local.country_set}})"
     action      = "block"
   }]
 }

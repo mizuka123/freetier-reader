@@ -34,7 +34,17 @@ echo "https://${READER_HOSTNAME}/hook/x/${X_WEBHOOK_TOKEN}"
    ```
 
    `<<< >>>` で囲むと IFTTT が値を URL エンコードします（本文に `&` や改行があっても壊れません）。
+   万一 `<<< >>>` が記号のまま届いた場合も、x-webhook-rss が外側の記号を取り除きます。
 4. 保存して有効化
+5. **エンコードの確認**（初回のみ）: `&` `=` `+` と改行を含む投稿がフィードに欠落なく表示されることを確認してください
+   （[operations.md のチェックリスト #8](operations.md#初回構築後の確認チェックリストe2e)）。
+   欠落する場合は Content Type を `application/json`、Body を次にしてください:
+
+   ```
+   {"username":"{{UserName}}","text":"{{Text}}","link":"{{LinkToTweet}}","created_at":"{{CreatedAt}}"}
+   ```
+
+   ただし JSON 形式は本文に `"` があると壊れるため、form 形式が動く場合は form 形式を使ってください。
 
 ## 3. 受け付けるアカウントを制限する
 
@@ -60,10 +70,12 @@ Miniflux → フィード → 追加 で上記 URL を入力し、カテゴリ�
 
 ```bash
 docker compose exec x-webhook-rss wget -qO- http://127.0.0.1:8080/healthz
-# {"ok":true,"lastReceivedAt":"2026-10-02T13:15:00.000Z"}
+# {"ok":true,"stale":false,"lastReceivedAt":"2026-10-02T13:15:00.000Z"}
+docker compose logs --tail 50 x-webhook-rss   # 拒否された Webhook は理由付きでログに出る
 ```
 
-`lastReceivedAt` が長期間更新されない場合は、IFTTT のアプレット実行履歴（Activity）を確認してください。
+`X_STALE_HOURS`（既定 72）を超えて受信がないと `/healthz` が 503 になり、`scripts/monitor.sh` が通知します（[operations.md](operations.md#監視)）。
+その場合は IFTTT のアプレット実行履歴（Activity）を確認してください。
 
 ## 制約
 

@@ -8,8 +8,13 @@ const MONTHS = {
 
 const IFTTT_PATTERN = /^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2})\s*([AP]M)$/i;
 
+function validDate(value) {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /**
- * @param {string} value
+ * @param {unknown} value
  * @param {string} tzOffset "+09:00" 形式
  * @returns {Date | null}
  */
@@ -20,18 +25,25 @@ export function parseCreatedAt(value, tzOffset = '+00:00') {
   const m = IFTTT_PATTERN.exec(text);
   if (m) {
     const month = MONTHS[m[1].toLowerCase()];
-    if (!month) return null;
-    let hour = Number(m[4]) % 12;
-    if (m[6].toUpperCase() === 'PM') hour += 12;
+    const day = Number(m[2]);
+    const hour12 = Number(m[4]);
+    if (!month || hour12 < 1 || hour12 > 12 || Number(m[5]) > 59) return null;
+    const hour = (hour12 % 12) + (m[6].toUpperCase() === 'PM' ? 12 : 0);
     const pad = (n) => String(n).padStart(2, '0');
-    const iso = `${m[3]}-${pad(month)}-${pad(Number(m[2]))}T${pad(hour)}:${m[5]}:00${tzOffset}`;
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? null : d;
+    const d = validDate(`${m[3]}-${pad(month)}-${pad(day)}T${pad(hour)}:${m[5]}:00${tzOffset}`);
+    // 2月31日のような存在しない日付（Date が繰り上げる）を拒否する
+    if (!d) return null;
+    const local = new Date(d.getTime() + offsetMinutes(tzOffset) * 60000);
+    return local.getUTCDate() === day && local.getUTCMonth() + 1 === month ? d : null;
   }
 
-  if (/^\d{4}-\d{2}-\d{2}T/.test(text)) {
-    const d = new Date(text);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text)) return validDate(text);
   return null;
+}
+
+function offsetMinutes(tzOffset) {
+  const m = /^([+-])(\d{2}):(\d{2})$/.exec(tzOffset);
+  if (!m) return 0;
+  const minutes = Number(m[2]) * 60 + Number(m[3]);
+  return m[1] === '-' ? -minutes : minutes;
 }
