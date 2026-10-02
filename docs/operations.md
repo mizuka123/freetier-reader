@@ -83,8 +83,13 @@ docker compose exec postgres psql -U miniflux -d postgres -c 'DROP DATABASE "min
 | GitHub Actions | Dependabot が週 1 回、まとめて 1 つの PR にする。CI が通ればマージ |
 | コンテナイメージ（マイナー・パッチ） | Dependabot の PR を確認してマージ → `update.sh` |
 | Terraform プロバイダ | Dependabot の PR で CHANGELOG の破壊的変更を確認してからマージ |
-| Node.js のメジャー更新 | Dependabot では提案しない。新しいバージョンが LTS になってから、`services/x-webhook-rss/Dockerfile` と CI の `node-version` を揃えて手動で上げる |
-| PostgreSQL のメジャー更新 | Dependabot では提案しない。下記の手順で移行する |
+| Node.js のメジャー更新 | Dependabot の PR は**そのままマージしない**。新しいバージョンが LTS になってから、`services/x-webhook-rss/Dockerfile` と CI の `node-version` を揃えた PR で上げる |
+| PostgreSQL のメジャー更新 | Dependabot の PR は**そのままマージしない**（データ移行が必要）。下記の手順で移行する |
+
+メジャー更新の PR も通知としては受け取ります（セキュリティ修正が新しいメジャーにしか出ない場合に気づくため）。
+あわせて年 2 回（4 月・10 月目安）、使用中のバージョンのサポート期限を確認してください:
+[PostgreSQL](https://www.postgresql.org/support/versioning/)（各メジャー 5 年）、[Node.js](https://nodejs.org/en/about/previous-releases)（LTS 約 30 か月）、
+[Miniflux](https://github.com/miniflux/v2/releases)。期限の 6 か月前までに移行します。
 
 ### PostgreSQL のメジャーバージョンを上げる
 
@@ -97,11 +102,17 @@ docker compose exec postgres psql -U miniflux -d postgres -c 'DROP DATABASE "min
 
    ```bash
    cd /opt/freetier-reader
-   archive="$(sudo ./scripts/backup.sh | tail -n 1)"   # 旧バージョンでダンプ
+   set -euo pipefail
+   # 旧バージョンでダンプ。失敗したらここで止まる（新しい DB には切り替えない）
+   sudo ./scripts/backup.sh | tee /tmp/ftr-backup.log
+   archive="$(tail -n 1 /tmp/ftr-backup.log)"
+   test -s "$archive" && tar -tzf "$archive" | grep -q 'miniflux.dump'   # アーカイブとダンプの存在を確認
    sudo git pull --ff-only
    sudo docker compose up -d --wait postgres            # 新バージョン（空のボリュームで初期化）
    sudo ./scripts/restore.sh --yes "$archive"            # ダンプを復元して全サービスを起動
    ```
+
+   `backup.sh` はダンプを `pg_restore -l` で検証してからアーカイブを作ります。リストアに失敗した場合は、`compose.yml` を元に戻して `docker compose up -d` すれば、旧バージョンのボリュームのまま元の状態で起動します（旧ボリュームは手順 4 まで削除しない）。
 
 4. 動作を確認したら、古いボリュームを削除する（`docker volume ls` で名前を確認して `docker volume rm freetier-reader_pg-data`）
 
