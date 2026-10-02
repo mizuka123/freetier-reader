@@ -128,6 +128,7 @@ Terraform 側の他の値を VM に反映する方法は [terraform.md の「設
 | 8 | IFTTT アプレットを実行（対象アカウントでテスト投稿、または過去投稿で手動実行） | `docker compose logs x-webhook-rss` にエラーがなく、フィードに本文が**記号の欠落なく**表示される（`&` `=` `+` 改行を含む投稿で確認） |
 | 9 | Miniflux に rss-bridge（報知）と x-webhook-rss のフィードを追加 | 取得エラーにならない |
 | 10 | `sudo ./scripts/backup.sh` → `sudo ./scripts/restore.sh <archive>` | `offsite backup:` が表示される（rclone のインスタンスプリンシパル認証が動く）。復元後も記事・スターが残る |
+| 10b | ブラウザで Miniflux を開く（ライト/ダーク両方、Tab キーでの移動） | デジタル庁デザインシステム準拠のテーマが表示され、フォーカス位置が黒枠 + 黄色で分かる（[theme.md](theme.md)） |
 | 11a | `sudo reboot` 後に `docker compose ps` | データボリュームがマウントされてから Docker が起動し、記事が残っている |
 | 11b | `docker compose exec miniflux nslookup example.com` などコンテナから名前解決 | 解決できる（egress guard が DNS を許可している） |
 | 11 | Healthchecks.io のダッシュボード | 2 つのチェックが Up |

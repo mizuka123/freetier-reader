@@ -74,4 +74,6 @@ docker compose pull --ignore-buildable
 docker compose up -d --build --wait --remove-orphans
 trap - ERR
 docker image prune -f >/dev/null || true
+# テーマの CSS が更新されている可能性があるため再適用（失敗しても更新は成功扱い）
+./scripts/apply-theme.sh || echo "warning: theme was not applied; run scripts/apply-theme.sh" >&2
 echo "update completed"

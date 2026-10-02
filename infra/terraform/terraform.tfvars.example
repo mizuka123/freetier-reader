@@ -37,6 +37,8 @@ allowed_emails        = ["you@example.com"]
 # repo_url = "https://github.com/<you>/freetier-reader.git"
 x_allowed_users = ["example_user1", "example_user2"]
 # x_stale_hours = 72
+# miniflux_theme = "dads"   # デジタル庁デザインシステム準拠（none で Miniflux 標準）
+# theme_web_font = false    # true で Noto Sans JP を Google Fonts から読み込む
 # auto_update   = false
 
 # ---- 監視（任意。Healthchecks.io などで作った ping URL） ----

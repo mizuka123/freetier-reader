@@ -6,6 +6,7 @@
 - **RSS がないサイト** … CSS セレクタで記事一覧と本文を抜き出してフィード化
 - **X（旧Twitter）** … IFTTT の公式連携で投稿を受け取り、アカウント別フィード化
 - **ログイン認証** … Cloudflare Access + Miniflux（パスキー / TOTP）。スマホ・タブレットのアプリは同期 API で初回設定のみ
+- **デザイン** … デジタル庁デザインシステムを参考にした画面テーマ（ライト/ダーク、WCAG 2.2 AA のコントラストを CI で検証）
 - **IaC** … Terraform で OCI と Cloudflare を一括構築
 - **運用** … 毎日のバックアップ（OCI Object Storage へ 30 日）、死活監視（Healthchecks.io 等）、OS 自動更新、失敗時ロールバック付きの更新スクリプト
 
@@ -86,6 +87,7 @@ docker compose up -d --build --wait
 | [docs/ifttt.md](docs/ifttt.md) | IFTTT で X の投稿を受け取る設定 |
 | [docs/sources.md](docs/sources.md) | RSS のないサイトのフィード化（例: スポーツ報知） |
 | [docs/apps.md](docs/apps.md) | Android / iPhone / iPad / ブラウザでの利用 |
+| [docs/theme.md](docs/theme.md) | 画面テーマ（デジタル庁デザインシステム準拠）の適用・カスタマイズ |
 | [docs/operations.md](docs/operations.md) | 監視・バックアップ/リストア・更新・秘密値の変更・初回確認チェックリスト |
 
 ## 個人設定の管理
@@ -98,6 +100,7 @@ docker compose up -d --build --wait
 - サイトのセレクタ定義はサンプルです。各サイトの利用規約を守り、個人利用の範囲で、巡回間隔を空けて利用してください。
 - X の投稿は IFTTT の公式連携で取得します。Cookie の抜き取りなど、X の規約に反する方法は扱いません。
 - 利用している OSS（Miniflux: Apache-2.0、RSS-Bridge: Unlicense、morss: AGPL-3.0、RSSHub: MIT）は公式イメージを参照するのみで、コードは同梱していません。
+- 画面テーマはデジタル庁デザインシステムを参考にした非公式のものです。デザイントークンの値は @digital-go-jp/design-tokens（MIT License, © 2023 デジタル庁）を使用しています（[themes/dads/LICENSE-design-tokens](themes/dads/LICENSE-design-tokens)）。
 
 ## ライセンス
 

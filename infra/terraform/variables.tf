@@ -258,6 +258,22 @@ variable "admin_username" {
   }
 }
 
+variable "miniflux_theme" {
+  description = "画面テーマ（dads: デジタル庁デザインシステムを参考にしたテーマ / none: Miniflux 標準）"
+  type        = string
+  default     = "dads"
+  validation {
+    condition     = contains(["dads", "none"], var.miniflux_theme)
+    error_message = "dads または none を指定してください。"
+  }
+}
+
+variable "theme_web_font" {
+  description = "Noto Sans JP を Google Fonts から読み込む（閲覧端末から Google へ通信が発生する）"
+  type        = bool
+  default     = false
+}
+
 variable "x_allowed_users" {
   description = "IFTTT から受け付ける X アカウント（@ なし）"
   type        = list(string)

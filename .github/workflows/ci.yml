@@ -21,6 +21,48 @@ jobs:
           node-version: 24
       - run: npm test
 
+  theme:
+    # テーマの色の組み合わせが WCAG 2.2 AA のコントラスト比を満たすこと
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test "themes/**/*.test.js"
+
+  theme-e2e:
+    # 実際の Miniflux に apply-theme.sh でテーマを適用し、API で反映を確認する
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare .env (Miniflux + PostgreSQL only)
+        run: |
+          cp .env.example .env
+          sed -i -e 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=/' \
+                 -e 's/^READER_HOSTNAME=.*/READER_HOSTNAME=localhost/' \
+                 -e 's/^CLOUDFLARE_TUNNEL_TOKEN=CHANGE_ME$/CLOUDFLARE_TUNNEL_TOKEN=unused/' .env
+          bash scripts/init.sh
+      - run: docker compose up -d --wait postgres miniflux
+      - name: Apply and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a; source .env; set +a
+          me() { curl -fsS -u "${ADMIN_USERNAME}:${ADMIN_PASSWORD}" http://127.0.0.1:8080/v1/me; }
+
+          bash scripts/apply-theme.sh
+          me | python3 -c 'import json,sys; u=json.load(sys.stdin); assert u["theme"]=="system_sans_serif", u["theme"]; assert "--dads-blue-900" in u["stylesheet"]; assert u["external_font_hosts"]==""'
+
+          sed -i 's/^MINIFLUX_THEME_WEB_FONT=.*/MINIFLUX_THEME_WEB_FONT=true/' .env
+          bash scripts/apply-theme.sh
+          me | python3 -c 'import json,sys; u=json.load(sys.stdin); assert u["stylesheet"].startswith("@import"); assert "fonts.gstatic.com" in u["external_font_hosts"]'
+
+          bash scripts/apply-theme.sh --reset
+          me | python3 -c 'import json,sys; u=json.load(sys.stdin); assert u["stylesheet"]=="" and u["theme"]=="light_serif"'
+      - if: failure()
+        run: docker compose logs miniflux
+
   service-image:
     # PR でも Dockerfile をビルドし、起動して /healthz を確認する
     runs-on: ubuntu-latest
