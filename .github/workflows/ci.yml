@@ -134,8 +134,12 @@ jobs:
           docker compose logs postgres miniflux
 
   service-image:
-    # PR でも Dockerfile をビルドし、起動して /healthz を確認する
-    runs-on: ubuntu-latest
+    # PR でも Dockerfile を amd64 / arm64（OCI A1）の両方でビルドし、起動して /healthz を確認する
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
       - run: docker build -t x-webhook-rss:ci services/x-webhook-rss
@@ -222,27 +226,3 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  image:
-    # main へのマージ時にマルチアーキテクチャイメージを GHCR へ公開（任意利用。既定はローカルビルド）
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [service-test, service-image]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v7
-        with:
-          context: services/x-webhook-rss
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/freetier-reader-x-webhook-rss:${{ github.sha }}
