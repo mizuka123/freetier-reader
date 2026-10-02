@@ -10,6 +10,8 @@ locals {
     reader_hostname      = var.reader_hostname
     admin_username       = var.admin_username
     admin_password       = random_password.admin.result
+    miniflux_theme       = var.miniflux_theme
+    theme_web_font       = var.theme_web_font
     postgres_password    = random_password.postgres.result
     tunnel_token         = module.cloudflare.tunnel_token
     webhook_token        = random_password.webhook_token.result

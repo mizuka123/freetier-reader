@@ -14,6 +14,7 @@ load_env || exit 1
 problems=()
 
 [[ -e /var/lib/freetier-reader/bootstrap.failed ]] && problems+=("bootstrap: failed (see /var/log/freetier-reader-bootstrap.log)")
+[[ -e .state/theme.failed ]] && problems+=("theme: not applied ($(cat .state/theme.failed)); run scripts/apply-theme.sh")
 
 if ! expected="$(docker compose config --services 2>&1)"; then
   problems+=("compose: config failed: ${expected}")

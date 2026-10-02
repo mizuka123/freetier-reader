@@ -1,0 +1,383 @@
+/*
+ * freetier-reader: デジタル庁デザインシステム（DADS）のデザイントークンを参考にした非公式の Miniflux テーマ
+ *
+ * - 色・タイポグラフィ・角丸・影は @digital-go-jp/design-tokens v2.0.1 の値を使用
+ *   (c) 2023 デジタル庁, MIT License — themes/dads/LICENSE-design-tokens を参照
+ * - 本テーマはデジタル庁の公式なものではありません
+ * - Miniflux 2.3 のテーマ変数（internal/ui/static/css/light.css）を上書きする方式。
+ *   Miniflux のテーマは「System - Sans Serif」（system_sans_serif）を前提にライト/ダーク両方を定義
+ * - 適用: scripts/apply-theme.sh（docs/theme.md）
+ */
+
+:root {
+  /* ---- DADS design tokens（使用する分のみ） ---- */
+  --dads-white: #ffffff;
+  --dads-black: #000000;
+  --dads-gray-50: #f2f2f2;
+  --dads-gray-200: #cccccc;
+  --dads-gray-300: #b3b3b3;
+  --dads-gray-420: #949494;
+  --dads-gray-536: #767676;
+  --dads-gray-600: #666666;
+  --dads-gray-700: #4d4d4d;
+  --dads-gray-800: #333333;
+  --dads-gray-900: #1a1a1a;
+  --dads-blue-50: #e8f1fe;
+  --dads-blue-200: #c5d7fb;
+  --dads-blue-300: #9db7f9;
+  --dads-blue-900: #0017c1;
+  --dads-blue-1000: #00118f;
+  --dads-blue-1100: #000071;
+  --dads-light-blue-200: #c0e4ff;
+  --dads-light-blue-300: #97d3ff;
+  --dads-magenta-900: #8b008b;
+  --dads-green-50: #e6f5ec;
+  --dads-green-800: #197a4b;
+  --dads-red-50: #fdeeee;
+  --dads-red-900: #ce0000;
+  --dads-yellow-50: #fbf5e0;
+  --dads-yellow-300: #ffd43d;
+  --dads-yellow-900: #927200;
+  --dads-yellow-1100: #6e5600;
+  --dads-radius-8: 0.5rem;
+  --dads-elevation-1: 0 2px 8px 1px rgba(0, 0, 0, 0.1), 0 1px 5px 0 rgba(0, 0, 0, 0.3);
+  --dads-font-sans: "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+  --dads-line-height-body: 1.7;
+
+  /* ---- Miniflux テーマ変数（ライト） ---- */
+  --font-family: var(--dads-font-sans);
+  --body-color: var(--dads-gray-800);
+  --body-background: var(--dads-white);
+  --hr-border-color: var(--dads-gray-200);
+  --title-color: var(--dads-gray-900);
+  --link-color: var(--dads-blue-1000);
+  --link-focus-color: var(--dads-blue-1100);
+  --link-hover-color: var(--dads-blue-1100);
+  --link-visited-color: var(--dads-magenta-900);
+
+  --header-list-border-color: var(--dads-gray-200);
+  --header-link-color: var(--dads-gray-800);
+  --header-link-focus-color: var(--dads-blue-1000);
+  --header-link-hover-color: var(--dads-blue-1000);
+  --header-active-link-color: var(--dads-blue-900);
+
+  --page-header-title-border-color: var(--dads-gray-200);
+
+  --logo-color: var(--dads-gray-900);
+  --logo-hover-color-span: var(--dads-blue-900);
+
+  --table-border-color: var(--dads-gray-200);
+  --table-th-background: var(--dads-gray-50);
+  --table-th-color: var(--dads-gray-900);
+  --table-tr-hover-background-color: var(--dads-blue-50);
+  --table-tr-hover-color: var(--dads-gray-900);
+
+  --button-primary-border-color: var(--dads-blue-900);
+  --button-primary-background: var(--dads-blue-900);
+  --button-primary-color: var(--dads-white);
+  --button-primary-focus-border-color: var(--dads-blue-1100);
+  --button-primary-focus-background: var(--dads-blue-1000);
+
+  --ftr-input-border-color: var(--dads-gray-600);
+  --input-border: 1px solid var(--ftr-input-border-color);
+  --input-background: var(--dads-white);
+  --input-color: var(--dads-gray-900);
+  --input-placeholder-color: var(--dads-gray-536);
+  --input-focus-color: var(--dads-gray-900);
+  --input-focus-border-color: var(--dads-black);
+  --input-focus-box-shadow: 0 0 0 2px var(--dads-yellow-300);
+
+  /* Yellow 900 は Yellow 50 上で 4.5:1 に届かないため文字は Yellow 1100 */
+  --alert-color: var(--dads-yellow-1100);
+  --alert-background-color: var(--dads-yellow-50);
+  --alert-border-color: var(--dads-yellow-900);
+  --alert-success-color: var(--dads-green-800);
+  --alert-success-background-color: var(--dads-green-50);
+  --alert-success-border-color: var(--dads-green-800);
+  --alert-error-color: var(--dads-red-900);
+  --alert-error-background-color: var(--dads-red-50);
+  --alert-error-border-color: var(--dads-red-900);
+  --alert-info-color: var(--dads-blue-1000);
+  --alert-info-background-color: var(--dads-blue-50);
+  --alert-info-border-color: var(--dads-blue-1000);
+
+  --panel-background: var(--dads-gray-50);
+  --panel-border-color: var(--dads-gray-200);
+  --panel-color: var(--dads-gray-800);
+
+  --pagination-link-color: var(--dads-blue-1000);
+  --pagination-border-color: var(--dads-gray-200);
+
+  --category-color: var(--dads-blue-1000);
+  --category-background-color: var(--dads-blue-50);
+  --category-border-color: var(--dads-blue-200);
+  --category-link-color: var(--dads-blue-1000);
+  --category-link-hover-color: var(--dads-blue-1100);
+
+  --item-border-color: var(--dads-gray-200);
+  --item-padding: 0.75rem;
+  --item-title-link-font-weight: 700;
+  --item-status-read-title-link-color: var(--dads-gray-600);
+  --item-status-read-title-focus-color: var(--dads-gray-700);
+  --item-meta-focus-color: var(--dads-gray-700);
+  --item-meta-li-color: var(--dads-gray-600);
+
+  --current-item-border-width: 4px;
+  --current-item-border-color: var(--dads-blue-900);
+  --current-item-box-shadow: var(--dads-elevation-1);
+
+  --modal-background: var(--dads-white);
+  --modal-color: var(--dads-gray-800);
+  --modal-box-shadow: var(--dads-elevation-1);
+
+  --entry-header-border-color: var(--dads-gray-200);
+  --entry-header-title-link-color: var(--dads-gray-900);
+  --entry-content-font-family: var(--dads-font-sans);
+  --entry-content-font-weight: 400;
+  --entry-content-quote-font-family: var(--dads-font-sans);
+  --entry-content-color: var(--dads-gray-800);
+  --entry-content-code-color: var(--dads-gray-900);
+  --entry-content-code-background: var(--dads-gray-50);
+  --entry-content-code-border-color: var(--dads-gray-200);
+  --entry-content-quote-color: var(--dads-gray-700);
+  --entry-content-abbr-border-color: var(--dads-gray-536);
+  --entry-content-aside-border-color: var(--dads-gray-200);
+  --entry-enclosure-border-color: var(--dads-gray-600);
+
+  --parsing-error-color: var(--dads-gray-900);
+  --feed-parsing-error-background-color: var(--dads-yellow-50);
+  --feed-parsing-error-border-style: solid;
+  --feed-parsing-error-border-color: var(--dads-yellow-900);
+
+  --feed-has-unread-background-color: var(--dads-blue-50);
+  --feed-has-unread-border-style: solid;
+  --feed-has-unread-border-color: var(--dads-blue-200);
+  --category-has-unread-background-color: var(--dads-blue-50);
+  --category-has-unread-border-style: solid;
+  --category-has-unread-border-color: var(--dads-blue-200);
+
+  --keyboard-shortcuts-li-color: var(--dads-gray-800);
+  --counter-color: var(--dads-gray-600);
+
+  /* ---- テーマ独自 ---- */
+  --ftr-focus-outline: var(--dads-black);
+  --ftr-focus-ring: var(--dads-yellow-300);
+}
+
+/* DADS には公式のダークテーマがないため、同じトークンを反転させて構成する */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --body-color: var(--dads-gray-50);
+    --body-background: var(--dads-gray-900);
+    --hr-border-color: var(--dads-gray-700);
+    --title-color: var(--dads-white);
+    --link-color: var(--dads-light-blue-300);
+    --link-focus-color: var(--dads-light-blue-200);
+    --link-hover-color: var(--dads-light-blue-200);
+    --link-visited-color: #e5b3e5;
+
+    --header-list-border-color: var(--dads-gray-700);
+    --header-link-color: var(--dads-gray-50);
+    --header-link-focus-color: var(--dads-light-blue-300);
+    --header-link-hover-color: var(--dads-light-blue-300);
+    --header-active-link-color: var(--dads-light-blue-300);
+
+    --page-header-title-border-color: var(--dads-gray-700);
+    --logo-color: var(--dads-white);
+    --logo-hover-color-span: var(--dads-light-blue-300);
+
+    --table-border-color: var(--dads-gray-700);
+    --table-th-background: var(--dads-gray-800);
+    --table-th-color: var(--dads-white);
+    --table-tr-hover-background-color: var(--dads-gray-800);
+    --table-tr-hover-color: var(--dads-white);
+
+    --button-primary-border-color: var(--dads-blue-300);
+    --button-primary-background: var(--dads-blue-300);
+    --button-primary-color: var(--dads-gray-900);
+    --button-primary-focus-border-color: var(--dads-blue-200);
+    --button-primary-focus-background: var(--dads-blue-200);
+
+    --ftr-input-border-color: var(--dads-gray-300);
+    --input-border: 1px solid var(--ftr-input-border-color);
+    --input-background: var(--dads-gray-800);
+    --input-color: var(--dads-white);
+    --input-placeholder-color: var(--dads-gray-300);
+    --input-focus-color: var(--dads-white);
+    --input-focus-border-color: var(--dads-white);
+
+    --alert-color: var(--dads-yellow-300);
+    --alert-background-color: var(--dads-gray-800);
+    --alert-border-color: var(--dads-yellow-300);
+    --alert-success-color: #9be3bd;
+    --alert-success-background-color: var(--dads-gray-800);
+    --alert-success-border-color: #9be3bd;
+    --alert-error-color: #ffb3b3;
+    --alert-error-background-color: var(--dads-gray-800);
+    --alert-error-border-color: #ffb3b3;
+    --alert-info-color: var(--dads-light-blue-300);
+    --alert-info-background-color: var(--dads-gray-800);
+    --alert-info-border-color: var(--dads-light-blue-300);
+
+    --panel-background: var(--dads-gray-800);
+    --panel-border-color: var(--dads-gray-700);
+    --panel-color: var(--dads-gray-50);
+    --pagination-link-color: var(--dads-light-blue-300);
+    --pagination-border-color: var(--dads-gray-700);
+
+    --category-color: var(--dads-light-blue-200);
+    --category-background-color: var(--dads-gray-800);
+    --category-border-color: var(--dads-gray-600);
+    --category-link-color: var(--dads-light-blue-200);
+    --category-link-hover-color: var(--dads-white);
+
+    /* 補助的な文字はパネル・未読行（Gray 800）上でも 4.5:1 を満たす Gray 300 */
+    --item-border-color: var(--dads-gray-700);
+    --item-status-read-title-link-color: var(--dads-gray-300);
+    --item-status-read-title-focus-color: var(--dads-gray-200);
+    --item-meta-focus-color: var(--dads-gray-200);
+    --item-meta-li-color: var(--dads-gray-300);
+    --current-item-border-color: var(--dads-light-blue-300);
+    --current-item-box-shadow: none;
+
+    --modal-background: var(--dads-gray-800);
+    --modal-color: var(--dads-gray-50);
+    --modal-box-shadow: none;
+
+    --entry-header-border-color: var(--dads-gray-700);
+    --entry-header-title-link-color: var(--dads-white);
+    --entry-content-color: var(--dads-gray-50);
+    --entry-content-code-color: var(--dads-white);
+    --entry-content-code-background: var(--dads-gray-800);
+    --entry-content-code-border-color: var(--dads-gray-700);
+    --entry-content-quote-color: var(--dads-gray-200);
+    --entry-content-abbr-border-color: var(--dads-gray-420);
+    --entry-content-aside-border-color: var(--dads-gray-700);
+    --entry-enclosure-border-color: var(--dads-gray-420);
+
+    --parsing-error-color: var(--dads-white);
+    --feed-parsing-error-background-color: var(--dads-gray-800);
+    --feed-parsing-error-border-color: var(--dads-yellow-300);
+    --feed-has-unread-background-color: var(--dads-gray-800);
+    --feed-has-unread-border-color: var(--dads-gray-600);
+    --category-has-unread-background-color: var(--dads-gray-800);
+    --category-has-unread-border-color: var(--dads-gray-600);
+
+    --keyboard-shortcuts-li-color: var(--dads-gray-50);
+    --counter-color: var(--dads-gray-300);
+
+    /* 暗い背景では黄色を外側の枠にし、内側を黒にして要素との境界を保つ */
+    --ftr-focus-outline: var(--dads-yellow-300);
+    --ftr-focus-ring: var(--dads-black);
+  }
+}
+
+/* ---- タイポグラフィ（DADS: 本文 16px / 行間 1.7） ---- */
+body {
+  font-size: 1rem;
+  line-height: var(--dads-line-height-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.entry-content {
+  font-size: 1.0625rem;
+  line-height: var(--dads-line-height-body);
+  max-width: 44em;
+}
+
+.item-title a,
+.entry-header h1 a {
+  line-height: 1.5;
+}
+
+/* ---- リンク（下線で識別できるようにする） ---- */
+.entry-content a {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.entry-content a:hover {
+  text-decoration-thickness: 0.15em;
+}
+
+/* ---- フォーカス（DADS: 黒の枠 + 黄色のリング。キーボード操作時のみ） ---- */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--ftr-focus-outline);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--ftr-focus-ring);
+}
+
+/* ---- ボタン・入力（角丸 8px、タップしやすい高さ） ---- */
+.button,
+input[type="submit"],
+button {
+  border-radius: var(--dads-radius-8);
+  min-height: 2.75rem;
+  padding-inline: 1rem;
+  font-weight: 700;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="url"],
+input[type="number"],
+input[type="search"],
+select,
+textarea {
+  border-radius: var(--dads-radius-8);
+  min-height: 2.75rem;
+}
+
+/* 狭い画面で入力欄・ボタンが横にはみ出さないようにする */
+input,
+select,
+textarea,
+button,
+.button {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+button,
+.button {
+  white-space: normal;
+}
+
+/* fieldset は既定で中身の最小幅より狭くならず、設定画面が横にはみ出すため解除する */
+fieldset {
+  min-inline-size: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+label,
+.form-label-row {
+  overflow-wrap: anywhere;
+}
+
+/* ---- 記事一覧・パネル ---- */
+.item,
+.panel {
+  border-radius: var(--dads-radius-8);
+}
+
+.category {
+  border-radius: var(--dads-radius-8);
+  font-weight: 700;
+}
+
+/* ---- 動きを減らす設定を尊重 ---- */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

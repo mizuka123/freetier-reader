@@ -6,7 +6,7 @@ VM 上の cron が次を実行します（Terraform 構築の場合は自動設�
 
 | ジョブ | 間隔 | 内容 | 通知先 |
 |---|---|---|---|
-| `scripts/monitor.sh` | 10 分 | 構築スクリプトの失敗マーカー（`/var/lib/freetier-reader/bootstrap.failed`）、有効なプロファイルの全サービスが存在し running / healthy か（starting が 10 分超は異常）、x-webhook-rss の `/status`（アカウントごとに `X_STALE_HOURS` 以内に受信しているか）、26 時間以内にローカル・オフサイトのバックアップが成功しているか、データ領域の使用率が 90% 未満か | `HEALTHCHECK_PING_URL` |
+| `scripts/monitor.sh` | 10 分 | 構築スクリプトの失敗マーカー（`/var/lib/freetier-reader/bootstrap.failed`）、テーマ適用の失敗マーカー（`.state/theme.failed`）、有効なプロファイルの全サービスが存在し running / healthy か（starting が 10 分超は異常）、x-webhook-rss の `/status`（アカウントごとに `X_STALE_HOURS` 以内に受信しているか）、26 時間以内にローカル・オフサイトのバックアップが成功しているか、データ領域の使用率が 90% 未満か | `HEALTHCHECK_PING_URL` |
 | `scripts/backup.sh` | 毎日 03:30 JST | バックアップの開始・成功・失敗 | `BACKUP_PING_URL` |
 | cloud-init の構築スクリプト | 初回起動時 | 構築の成功・失敗（失敗時はログ末尾を送信） | `HEALTHCHECK_PING_URL` |
 
@@ -128,6 +128,7 @@ Terraform 側の他の値を VM に反映する方法は [terraform.md の「設
 | 8 | IFTTT アプレットを実行（対象アカウントでテスト投稿、または過去投稿で手動実行） | `docker compose logs x-webhook-rss` にエラーがなく、フィードに本文が**記号の欠落なく**表示される（`&` `=` `+` 改行を含む投稿で確認） |
 | 9 | Miniflux に rss-bridge（報知）と x-webhook-rss のフィードを追加 | 取得エラーにならない |
 | 10 | `sudo ./scripts/backup.sh` → `sudo ./scripts/restore.sh <archive>` | `offsite backup:` が表示される（rclone のインスタンスプリンシパル認証が動く）。復元後も記事・スターが残る |
+| 10b | ブラウザで Miniflux を開く（ライト/ダーク両方、Tab キーでの移動） | テーマ（[theme.md](theme.md)）が表示され、フォーカス位置が黒枠 + 黄色で分かる。`.state/theme.failed` がない |
 | 11a | `sudo reboot` 後に `docker compose ps` | データボリュームがマウントされてから Docker が起動し、記事が残っている |
 | 11b | `docker compose exec miniflux nslookup example.com` などコンテナから名前解決 | 解決できる（egress guard が DNS を許可している） |
 | 11 | Healthchecks.io のダッシュボード | 2 つのチェックが Up |
