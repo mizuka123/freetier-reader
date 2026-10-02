@@ -1,0 +1,123 @@
+name: freetier-reader
+
+# ログはローテーションしてディスクを埋めないようにする
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 10m
+    max-file: "3"
+
+# 外部イメージは tag@digest で固定し、Dependabot で更新 PR を受け取る
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: miniflux
+      POSTGRES_DB: miniflux
+      # 初回起動時のみ有効。変更手順は docs/operations.md
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run scripts/init.sh}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "miniflux"]
+      interval: 10s
+      start_period: 30s
+
+  miniflux:
+    image: miniflux/miniflux:2.3.3@sha256:49d7b60987616387c306a8023087b31f2c9b7b21288b523026cb04058e8b6dbb
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://miniflux:${POSTGRES_PASSWORD}@postgres/miniflux?sslmode=disable
+      RUN_MIGRATIONS: "1"
+      CREATE_ADMIN: "1"
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?run scripts/init.sh}
+      BASE_URL: https://${READER_HOSTNAME:?set READER_HOSTNAME}
+      # rss-bridge / x-webhook-rss など compose 内部のフィードを取得するために必要（既定では拒否される）。
+      # コンテナからインスタンスメタデータ・VCN への通信は cloud-init の egress guard で遮断している。
+      FETCHER_ALLOW_PRIVATE_NETWORKS: "1"
+      # パスキー（WebAuthn）ログイン
+      WEBAUTHN: "1"
+      # 巡回間隔（分）
+      POLLING_FREQUENCY: "30"
+      # 既読記事は 90 日で削除（スター付きは残る）
+      CLEANUP_ARCHIVE_READ_DAYS: "90"
+      # ログインセッションを長く保持し、再ログインを減らす
+      CLEANUP_REMOVE_SESSIONS_DAYS: "180"
+    ports:
+      # VM のローカルホストのみ。外部公開は cloudflared 経由
+      - "127.0.0.1:${MINIFLUX_LOCAL_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "/usr/bin/miniflux", "-healthcheck", "auto"]
+      interval: 30s
+      start_period: 30s
+
+  rss-bridge:
+    image: rssbridge/rss-bridge:2026-09-30@sha256:fbb324d75613b90dad7394c385cee361a31f38e04f1ee9089a4758795b1104c3
+    restart: unless-stopped
+    logging: *logging
+    volumes:
+      - ./config/rss-bridge:/config:ro
+
+  x-webhook-rss:
+    profiles: ["x"]
+    # 既定はこのリポジトリからローカルビルド（フォークしても自分のコードが動く）。
+    # GHCR などのビルド済みイメージを使う場合は X_WEBHOOK_RSS_IMAGE に tag@digest を指定する。
+    image: ${X_WEBHOOK_RSS_IMAGE:-freetier-reader-x-webhook-rss:local}
+    build: ./services/x-webhook-rss
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      X_WEBHOOK_TOKEN: ${X_WEBHOOK_TOKEN:?run scripts/init.sh}
+      X_ALLOWED_USERS: ${X_ALLOWED_USERS:-}
+      X_IFTTT_TZ_OFFSET: ${X_IFTTT_TZ_OFFSET:-+09:00}
+      X_MAX_ITEMS: ${X_MAX_ITEMS:-200}
+      X_STALE_HOURS: ${X_STALE_HOURS:-72}
+    volumes:
+      - x-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"]
+      interval: 60s
+      start_period: 10s
+
+  cloudflared:
+    profiles: ["cloudflare"]
+    image: cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    restart: unless-stopped
+    logging: *logging
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:20241", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
+      interval: 30s
+      start_period: 20s
+    depends_on:
+      miniflux:
+        condition: service_healthy
+
+  morss:
+    profiles: ["morss"]
+    # 公式は latest のみ配布のため digest で固定。AGPL-3.0（改変せずに利用）
+    image: pictuga/morss:latest@sha256:47569ce90e1c3a47ad40e4b0ee896743f67d27bf3259d73f194267bcdb266a27
+    restart: unless-stopped
+    logging: *logging
+
+  rsshub:
+    profiles: ["rsshub"]
+    image: diygod/rsshub:2026-10-01@sha256:eda756a26478e94a34155748f8c6fe7030f3fe8ade30544ed53d4984bef4051e
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: memory
+
+volumes:
+  pg-data:
+  x-data:

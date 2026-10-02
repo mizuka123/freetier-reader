@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  service-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/x-webhook-rss
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm test
+
+  service-image:
+    # PR でも Dockerfile をビルドし、起動して /healthz を確認する
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t x-webhook-rss:ci services/x-webhook-rss
+      - name: Smoke test
+        run: |
+          docker run -d --name xw -p 18080:8080 \
+            -e X_WEBHOOK_TOKEN="$(openssl rand -hex 32)" -e DB_PATH=/data/x.db x-webhook-rss:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:18080/healthz && exit 0
+            sleep 1
+          done
+          docker logs xw
+          exit 1
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -S warning -x scripts/*.sh
+      - name: init.sh generates secrets and reports missing values
+        run: |
+          tmp="$(mktemp -d)"
+          mkdir "$tmp/scripts"
+          cp .env.example "$tmp/" && cp scripts/init.sh "$tmp/scripts/"
+          cd "$tmp"
+          set +e; bash scripts/init.sh; code=$?; set -e
+          test "$code" -eq 2                      # CLOUDFLARE_TUNNEL_TOKEN が未設定
+          grep -qE '^X_WEBHOOK_TOKEN=[A-Za-z0-9]{48}$' .env
+          grep -qE '^POSTGRES_PASSWORD=[A-Za-z0-9]{32}$' .env
+          sed -i 's/^CLOUDFLARE_TUNNEL_TOKEN=CHANGE_ME$/CLOUDFLARE_TUNNEL_TOKEN=dummy/' .env
+          bash scripts/init.sh
+
+  compose-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose --profile cloudflare --profile x --profile morss --profile rsshub config --quiet
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate
+      - name: Render cloud-init and check YAML / shell
+        shell: bash
+        run: |
+          set -euo pipefail
+          for au in true false; do
+            echo "templatefile(\"templates/cloud-init.yaml.tftpl\", { env_file_b64 = base64encode(\"A=1\"), repo_url = \"https://github.com/x/freetier-reader.git\", repo_ref = \"main\", vcn_cidr = \"10.0.0.0/16\", data_mount = \"/srv/freetier-reader\", data_volume_gb = 50, auto_update = $au, healthcheck_ping_url = \"\" })" \
+              | terraform console | sed -e '1{/^<<EOT$/d}' -e '${/^EOT$/d}' > "/tmp/cloud-init-$au.yaml"
+          done
+          python3 - <<'PY'
+          import yaml
+          for au in ("true", "false"):
+              d = yaml.safe_load(open(f"/tmp/cloud-init-{au}.yaml"))
+              assert d and d.get("write_files"), f"rendered cloud-init ({au}) is empty"
+              paths = [f["path"] for f in d["write_files"]]
+              assert "/etc/logrotate.d/freetier-reader" in paths, paths
+              cron = next(f["content"] for f in d["write_files"] if f["path"] == "/etc/cron.d/freetier-reader")
+              assert ("update.sh --auto" in cron) == (au == "true"), cron
+              for f in d["write_files"]:
+                  if f["path"].endswith(".sh"):
+                      open(f"/tmp/{au}-" + f["path"].rsplit("/", 1)[1], "w").write(f["content"])
+          PY
+          shellcheck -S warning /tmp/true-*.sh /tmp/false-*.sh
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --init && tflint --recursive
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  image:
+    # main へのマージ時にマルチアーキテクチャイメージを GHCR へ公開（任意利用。既定はローカルビルド）
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [service-test, service-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: services/x-webhook-rss
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/freetier-reader-x-webhook-rss:${{ github.sha }}

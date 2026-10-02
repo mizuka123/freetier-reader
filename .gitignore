@@ -1,0 +1,30 @@
+# 秘密情報・個人設定（絶対にコミットしない）
+.env
+.env.*
+!.env.example
+*.local.yml
+*.local.yaml
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+*.tfplan
+
+# バックアップ
+backups/
+
+# Node
+node_modules/
+*.db
+*.db-wal
+*.db-shm
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
