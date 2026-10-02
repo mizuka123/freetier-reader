@@ -60,7 +60,7 @@ docker compose --profile cloudflare --profile x --profile morss --profile rsshub
 
 - `main` へ直接コミットしない。ブランチを切って PR を出す。
 - コミットメッセージは Conventional Commits（`feat:` / `fix(theme):` / `chore(deps):` / `docs:` / `test:` など）、英語で書く。
-- PR は CI がすべて通ってからマージする。`image` ジョブは main への push 時だけ動くので、マージ後に結果を確認する。
+- PR は CI がすべて通ってからマージする。x-webhook-rss のイメージは amd64 / arm64 の両方でビルド・起動を確認している（ビルド済みイメージは公開しない。既定はローカルビルド）。
 
 ## ローカル専用のメモ
 
