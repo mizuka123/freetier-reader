@@ -69,7 +69,7 @@ x_run() { docker compose run --rm --no-deps -T --user root --entrypoint sh -v "$
 
 # 入れ替えの進み具合（失敗時にどこまで戻すかの判定に使う）
 pg_state=none   # none → old_renamed（miniflux を退避済み）→ swapped（復元 DB を miniflux に）
-x_state=none    # none → staged（一時ファイル作成済み）→ swapped（入れ替え済み）
+x_state=none    # none → staged（一時ファイル作成済み）→ swapped（元の DB を退避済み。以降は退避分を戻す）
 
 on_error() {
   trap - ERR
@@ -89,7 +89,7 @@ on_error() {
   esac
   case "$x_state" in
     staged) x_run "rm -f '${x_staged}'" || true ;;
-    swapped) x_run "rm -f '${x_db}' '${x_db}-wal' '${x_db}-shm' && mv '${x_old}' '${x_db}'" \
+    swapped) x_run "rm -f '${x_db}' '${x_db}-wal' '${x_db}-shm' '${x_staged}' && mv '${x_old}' '${x_db}'" \
       || echo "!! manual action: move ${x_old} back to ${x_db}" >&2 ;;
   esac
   echo "元のデータに戻してサービスを起動し直します..." >&2
@@ -131,10 +131,11 @@ psql_admin "ALTER DATABASE miniflux_restore RENAME TO miniflux;"
 pg_state=swapped
 
 if $restore_x; then
+  # 元の DB を退避した直後に状態を記録し、以降の失敗では退避分を必ず戻す
   x_run "if [ -f '${x_db}' ]; then mv '${x_db}' '${x_old}'; else : > '${x_old}'; fi
-    rm -f '${x_db}-wal' '${x_db}-shm'
-    mv '${x_staged}' '${x_db}'"
+    rm -f '${x_db}-wal' '${x_db}-shm'"
   x_state=swapped
+  x_run "mv '${x_staged}' '${x_db}'"
 fi
 
 echo "starting services..."
