@@ -16,7 +16,7 @@ write_files:
     permissions: "0600"
 
   # コンテナからインスタンスメタデータ（169.254.0.0/16）と VCN 内部への通信を遮断（SSRF 対策）。
-  # Docker より先に DOCKER-USER チェーンへルールを入れ、コンテナ起動時には必ず有効にしておく。
+  # ただし VCN の DNS リゾルバ（169.254.169.254:53）だけは許可する。
   - path: /usr/local/sbin/freetier-reader-egress-guard.sh
     permissions: "0755"
     content: |
@@ -26,6 +26,12 @@ write_files:
       for dst in 169.254.0.0/16 ${vcn_cidr}; do
         iptables -C DOCKER-USER -d "$dst" -j DROP 2>/dev/null || iptables -I DOCKER-USER -d "$dst" -j DROP
         iptables -C DOCKER-USER -d "$dst" -j DROP
+      done
+      # -I は先頭に挿入するため、DROP より後に入れた許可ルールが先に評価される
+      for proto in udp tcp; do
+        iptables -C DOCKER-USER -d 169.254.169.254 -p "$proto" --dport 53 -j RETURN 2>/dev/null \
+          || iptables -I DOCKER-USER -d 169.254.169.254 -p "$proto" --dport 53 -j RETURN
+        iptables -C DOCKER-USER -d 169.254.169.254 -p "$proto" --dport 53 -j RETURN
       done
 
   - path: /etc/systemd/system/freetier-reader-egress-guard.service
@@ -41,7 +47,15 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
-      RequiredBy=docker.service
+
+  # Docker はデータボリュームのマウントと egress guard の適用が終わるまで起動しない
+  # （マウント前に起動すると空の data-root で起動し、データが消えたように見えるため）
+  - path: /etc/systemd/system/docker.service.d/10-freetier-reader.conf
+    content: |
+      [Unit]
+      RequiresMountsFor=${data_mount}
+      Requires=freetier-reader-egress-guard.service
+      After=freetier-reader-egress-guard.service
 
   # OS のセキュリティ更新は自動適用、必要なら 04:30 JST（19:30 UTC）に自動再起動
   - path: /etc/apt/apt.conf.d/52freetier-reader
@@ -57,10 +71,8 @@ write_files:
       30 18 * * * root /opt/freetier-reader/scripts/backup.sh >> /var/log/freetier-reader-backup.log 2>&1
       # 監視: 10 分ごと
       */10 * * * * root /opt/freetier-reader/scripts/monitor.sh >> /var/log/freetier-reader-monitor.log 2>&1
-%{ if auto_update ~}
-      # 自動更新: 毎週日曜 04:00 JST（土曜 19:00 UTC）
-      0 19 * * 6 root /opt/freetier-reader/scripts/update.sh >> /var/log/freetier-reader-update.log 2>&1
-%{ endif ~}
+      # 自動更新: 毎週日曜 04:00 JST（土曜 19:00 UTC）。Terraform 変数 auto_update で切り替え
+      ${auto_update ? "0 19 * * 6 root /opt/freetier-reader/scripts/update.sh --auto >> /var/log/freetier-reader-update.log 2>&1" : "# (auto_update = false)"}
 
   - path: /etc/logrotate.d/freetier-reader
     content: |
@@ -81,12 +93,14 @@ write_files:
 
       PING_URL='${healthcheck_ping_url}'
       MOUNT='${data_mount}'
+      DATA_BYTES=$((${data_volume_gb} * 1024 * 1024 * 1024))
       STATE=/var/lib/freetier-reader
       mkdir -p "$STATE"
 
       fail() {
         echo "BOOTSTRAP FAILED at line $1"
         touch "$STATE/bootstrap.failed"
+        sleep 2  # tee がログを書き終えるのを待つ
         if [ -n "$PING_URL" ]; then
           tail -n 50 /var/log/freetier-reader-bootstrap.log | curl -fsS -m 10 --retry 3 -o /dev/null --data-binary @- "$PING_URL/fail" || true
         fi
@@ -104,34 +118,43 @@ write_files:
       }
 
       # ---- データ用ブロックボリューム（アタッチ完了まで最大 15 分待つ） ----
+      # ラベル ftr-data があればそれを使う。なければ「未使用・容量が一致する」ディスクが
+      # ちょうど 1 台の場合だけ初期化する（曖昧なら何もせず失敗）
       find_data_disk() {
-        local d
+        local d candidates=()
         if [ -e /dev/disk/by-label/ftr-data ]; then readlink -f /dev/disk/by-label/ftr-data; return 0; fi
         for d in $(lsblk -dpno NAME,TYPE | awk '$2 == "disk" { print $1 }'); do
-          # マウント済み・パーティションあり・ファイルシステムありのディスクは対象外
           lsblk -no MOUNTPOINTS "$d" | grep -q . && continue
           [ "$(lsblk -no NAME "$d" | wc -l)" -eq 1 ] || continue
           blkid "$d" >/dev/null 2>&1 && continue
-          echo "$d"; return 0
+          [ "$(lsblk -bdno SIZE "$d")" -eq "$DATA_BYTES" ] || continue
+          candidates+=("$d")
         done
-        return 1
+        if [ "$${#candidates[@]}" -gt 1 ]; then
+          echo "multiple candidate data disks: $${candidates[*]}" >&2
+          return 2
+        fi
+        [ "$${#candidates[@]}" -eq 1 ] && echo "$${candidates[0]}"
       }
+      disk=""
       for _ in $(seq 1 90); do
-        disk="$(find_data_disk || true)"
+        rc=0
+        disk="$(find_data_disk)" || rc=$?
+        [ "$rc" -eq 2 ] && false
         [ -n "$disk" ] && break
         sleep 10
       done
-      [ -n "$${disk:-}" ] || { echo "data volume not found"; false; }
+      [ -n "$disk" ] || { echo "data volume (${data_volume_gb} GB) not found"; false; }
       if ! blkid "$disk" >/dev/null 2>&1; then
         mkfs.ext4 -q -L ftr-data "$disk"
       fi
       mkdir -p "$MOUNT"
-      grep -q 'LABEL=ftr-data' /etc/fstab || echo "LABEL=ftr-data $MOUNT ext4 defaults,nofail,_netdev 0 2" >> /etc/fstab
+      grep -q 'LABEL=ftr-data' /etc/fstab || echo "LABEL=ftr-data $MOUNT ext4 defaults,nofail 0 2" >> /etc/fstab
+      systemctl daemon-reload
       mountpoint -q "$MOUNT" || mount "$MOUNT"
       mkdir -p "$MOUNT/docker" "$MOUNT/backups"
 
       # ---- Docker（データはデータボリュームに置く） ----
-      systemctl daemon-reload
       systemctl enable --now freetier-reader-egress-guard.service
       mkdir -p /etc/docker
       printf '{\n  "data-root": "%s/docker",\n  "log-driver": "local"\n}\n' "$MOUNT" > /etc/docker/daemon.json

@@ -1,13 +1,18 @@
 terraform {
+  required_version = ">= 1.9, < 2.0"
   required_providers {
     oci = {
-      source = "oracle/oci"
+      source  = "oracle/oci"
+      version = "~> 7.0"
     }
   }
 }
 
 locals {
   shape = "VM.Standard.A1.Flex"
+  # VM とデータボリュームは同じ AD に置く。VM の属性ではなくデータソースから取ることで、
+  # VM を作り直しても（-replace）データボリュームが作り直し対象にならないようにする
+  availability_domain = data.oci_identity_availability_domains.this.availability_domains[var.availability_domain_index].name
   # Bastion 名は英数字のみ
   bastion_name = replace(var.name, "/[^A-Za-z0-9]/", "")
 }
@@ -87,7 +92,7 @@ resource "oci_core_subnet" "this" {
 # ---- A1 インスタンス ----
 resource "oci_core_instance" "this" {
   compartment_id      = var.compartment_ocid
-  availability_domain = data.oci_identity_availability_domains.this.availability_domains[var.availability_domain_index].name
+  availability_domain = local.availability_domain
   display_name        = var.name
   shape               = local.shape
 
@@ -122,7 +127,7 @@ resource "oci_core_instance" "this" {
 # ---- データ用ブロックボリューム（Docker のデータ・ローカルバックアップ） ----
 resource "oci_core_volume" "data" {
   compartment_id      = var.compartment_ocid
-  availability_domain = oci_core_instance.this.availability_domain
+  availability_domain = local.availability_domain
   display_name        = "${var.name}-data"
   size_in_gbs         = var.data_volume_gb
 

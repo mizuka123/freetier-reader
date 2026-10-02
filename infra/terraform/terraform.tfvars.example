@@ -27,8 +27,9 @@ cloudflare_account_id = "0123456789abcdef0123456789abcdef"
 cloudflare_zone_id    = "0123456789abcdef0123456789abcdef"
 reader_hostname       = "reader.example.com"
 allowed_emails        = ["you@example.com"]
-# 既に Zero Trust に One-time PIN のログイン方式がある場合は false
-# create_otp_login_method = true
+# 既に Zero Trust に One-time PIN のログイン方式がある場合は false にし、使うログイン方式の ID を指定
+# create_otp_login_method = false
+# existing_access_idp_ids = ["00000000-0000-0000-0000-000000000000"]
 # api_allowed_countries = ["JP"]
 
 # ---- アプリ ----

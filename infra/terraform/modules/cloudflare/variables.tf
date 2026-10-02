@@ -28,6 +28,10 @@ variable "create_otp_login_method" {
   type = bool
 }
 
+variable "existing_idp_ids" {
+  type = list(string)
+}
+
 variable "session_duration" {
   type = string
 }

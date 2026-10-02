@@ -1,27 +1,36 @@
 terraform {
+  required_version = ">= 1.9, < 2.0"
   required_providers {
     cloudflare = {
-      source = "cloudflare/cloudflare"
+      source  = "cloudflare/cloudflare"
+      version = "~> 5.0"
     }
   }
 }
 
 locals {
-  # Cloudflare Access の対象外にするパス（Access のパス指定は配下のパスも含む）
-  #   /v1                     Miniflux API
-  #   /reader                 Google Reader API
-  #   /accounts/ClientLogin   Google Reader API のログイン
-  #   /fever                  Fever API
-  sync_api_paths = ["/v1", "/reader", "/accounts/ClientLogin", "/fever"]
-  #   /hook/x                 IFTTT Webhook（URL 内トークンで認証）
-  hook_path    = "/hook/x"
-  bypass_paths = concat(local.sync_api_paths, [local.hook_path])
+  # Cloudflare Access の対象外にするパス。末尾の / でパスの境界を明示し、
+  # /v1foo や /reader-xxx のような別パスがバイパスされないようにする
+  #   /v1/                    Miniflux API
+  #   /reader/                Google Reader API
+  #   /fever/                 Fever API
+  sync_api_prefixes = ["/v1/", "/reader/", "/fever/"]
+  #   /accounts/ClientLogin   Google Reader API のログイン（完全一致）
+  sync_api_exact = ["/accounts/ClientLogin"]
+  #   /hook/x/                IFTTT Webhook（URL 内トークンで認証）
+  hook_prefix  = "/hook/x/"
+  bypass_paths = concat(local.sync_api_prefixes, local.sync_api_exact, [local.hook_prefix])
 
   # WAF の式も同じパス一覧から作り、Access のバイパス範囲と一致させる
-  host_expr     = "http.host eq \"${var.hostname}\""
-  sync_api_expr = join(" or ", [for p in local.sync_api_paths : "starts_with(http.request.uri.path, \"${p}\")"])
-  bypass_expr   = join(" or ", [for p in local.bypass_paths : "starts_with(http.request.uri.path, \"${p}\")"])
-  country_set   = join(" ", [for c in var.api_allowed_countries : "\"${c}\""])
+  host_expr = "http.host eq \"${var.hostname}\""
+  sync_api_expr = join(" or ", concat(
+    [for p in local.sync_api_prefixes : "starts_with(http.request.uri.path, \"${p}\")"],
+    [for p in local.sync_api_exact : "http.request.uri.path eq \"${p}\""],
+  ))
+  bypass_expr = "${local.sync_api_expr} or starts_with(http.request.uri.path, \"${local.hook_prefix}\")"
+  country_set = join(" ", [for c in var.api_allowed_countries : "\"${c}\""])
+
+  allowed_idps = var.create_otp_login_method ? [cloudflare_zero_trust_access_identity_provider.otp[0].id] : var.existing_idp_ids
 }
 
 # ---- Tunnel ----
@@ -41,7 +50,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "this" {
     ingress = [
       {
         hostname = var.hostname
-        path     = "^${local.hook_path}/"
+        path     = "^${local.hook_prefix}"
         service  = "http://x-webhook-rss:8080"
       },
       {
@@ -102,8 +111,9 @@ resource "cloudflare_zero_trust_access_application" "ui" {
   domain           = var.hostname
   destinations     = [{ type = "public", uri = var.hostname }]
   session_duration = var.session_duration
-  allowed_idps     = var.create_otp_login_method ? [cloudflare_zero_trust_access_identity_provider.otp[0].id] : null
-  policies         = [{ id = cloudflare_zero_trust_access_policy.allow_owner.id, precedence = 1 }]
+  # 使えるログイン方式を明示する（指定しないとアカウントの全 IdP が使える）
+  allowed_idps = local.allowed_idps
+  policies     = [{ id = cloudflare_zero_trust_access_policy.allow_owner.id, precedence = 1 }]
 }
 
 # パスがより具体的なアプリケーションが優先されるため、UI アプリより先に評価される

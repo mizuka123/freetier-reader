@@ -37,11 +37,16 @@
 | morss | 全文取得の補助 | `morss` |
 | rsshub | RSSHub | `rsshub` |
 
-## 必要なもの
+## 必要なもの・費用
 
-- Docker が動くサーバ（推奨: OCI Always Free の A1。GCP e2-micro などでも可）
-- Cloudflare で DNS を管理しているドメイン（Free プランで可）
-- X 連携を使う場合: IFTTT Pro 以上（Webhooks アクションを使うため）
+| 必要なもの | 費用 |
+|---|---|
+| Docker が動くサーバ（推奨: OCI Always Free の A1。GCP e2-micro などでも可） | 0 円（Always Free の範囲。予算アラートで監視） |
+| Cloudflare で DNS を管理しているドメイン | ドメイン代のみ（Cloudflare は Free プランで可） |
+| X 連携を使う場合: IFTTT Pro 以上（Webhooks アクションを使うため） | IFTTT の利用料（**有料**。X 連携を使わなければ不要） |
+| 死活監視（任意）: Healthchecks.io など | 0 円（無料枠） |
+
+「月額 0 円」はインフラ（サーバ・ネットワーク・ストレージ）についてです。ドメインと IFTTT は別途必要です。
 
 ## クイックスタート
 

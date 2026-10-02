@@ -22,11 +22,12 @@ Docker と Docker Compose が動く Linux サーバならどこでも構築で�
    - ドメイン: `reader.example.com`、セッション時間: 1 month
    - ポリシー: Allow / Include: Emails = 自分のメール
 3. もう 1 つ Self-hosted アプリを追加（同期 API と Webhook をバイパス）
-   - パス: `/v1`、`/reader`、`/accounts/ClientLogin`、`/fever`、`/hook/x`
+   - パス: `/v1/`、`/reader/`、`/fever/`、`/accounts/ClientLogin`、`/hook/x/`（末尾の `/` でパスの境界を区切る）
    - ポリシー: Bypass / Include: Everyone
 4. WAF で次を設定（Free プランで可。Terraform の定義は `infra/terraform/modules/cloudflare/main.tf`）
    - Rate limiting rule: 上記 5 パスに 10 秒あたり 50 リクエスト（同一 IP）
-   - Custom rule: 同期 API の 4 パス（`/hook/x` 以外）を日本以外からブロック
+   - Custom rule: 同期 API の 4 パス（`/hook/x/` 以外）を日本以外からブロック
+5. [operations.md のチェックリスト](operations.md#初回構築後の確認チェックリストe2e) の #1〜#7 で境界を確認
 
 ## 3. 起動
 
@@ -49,8 +50,10 @@ Cloudflare を使わない場合は `COMPOSE_PROFILES` から `cloudflare` を�
 
 ## 4. cron
 
+時刻はサーバのタイムゾーン（`timedatectl` で確認）で解釈されます。下の例はサーバが JST の場合です（UTC のサーバなら `30 18 * * *`）。
+
 ```cron
-# バックアップ: 毎日 03:30
+# バックアップ: 毎日 03:30 JST
 30 3 * * * root /path/to/freetier-reader/scripts/backup.sh >> /var/log/freetier-reader-backup.log 2>&1
 # 監視: 10 分ごと（HEALTHCHECK_PING_URL を設定）
 */10 * * * * root /path/to/freetier-reader/scripts/monitor.sh >> /var/log/freetier-reader-monitor.log 2>&1

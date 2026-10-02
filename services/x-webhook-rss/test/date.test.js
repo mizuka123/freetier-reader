@@ -27,6 +27,10 @@ test('存在しない日付・時刻は null', () => {
   assert.equal(parseCreatedAt('Smarch 05, 2026 at 10:00AM', '+09:00'), null);
 });
 
+test('マイナスのタイムゾーン（UTC で翌日になるケース）', () => {
+  assert.equal(parseCreatedAt('December 31, 2026 at 11:30PM', '-05:00').toISOString(), '2027-01-01T04:30:00.000Z');
+});
+
 test('日付が UTC で前日になるケースも正しく判定する', () => {
   assert.equal(parseCreatedAt('March 01, 2026 at 02:00AM', '+09:00').toISOString(), '2026-02-28T17:00:00.000Z');
 });

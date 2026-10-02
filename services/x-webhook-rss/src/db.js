@@ -15,11 +15,20 @@ import { DatabaseSync } from 'node:sqlite';
  * @property {string} created_at
  */
 
-export function openDb(path) {
+/**
+ * @param {string} path
+ * @param {() => Date} [now]
+ */
+export function openDb(path, now = () => new Date()) {
   const db = new DatabaseSync(path);
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA busy_timeout = 5000;
+    -- created_at: DB 作成時刻 / last_webhook_at: 最後に正当な Webhook を受け取った時刻（重複・範囲外も含む）
+    CREATE TABLE IF NOT EXISTS meta (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS posts (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       username    TEXT NOT NULL CHECK (username = lower(username)),
@@ -46,7 +55,9 @@ export function openDb(path) {
     )
   `);
   const exists = db.prepare('SELECT 1 FROM posts WHERE link = ?');
-  const lastReceived = db.prepare('SELECT MAX(received_at) AS t FROM posts');
+  const getMeta = db.prepare('SELECT value FROM meta WHERE key = ?');
+  const setMeta = db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value');
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING').run('created_at', now().toISOString());
 
   return {
     /**
@@ -64,9 +75,17 @@ export function openDb(path) {
     listPosts(username, limit) {
       return listByUser.all(username, limit);
     },
+    /** @param {string} iso 正当な Webhook を受け取った時刻 */
+    recordWebhook(iso) {
+      setMeta.run('last_webhook_at', iso);
+    },
     /** @returns {string | null} */
-    lastReceivedAt() {
-      return lastReceived.get()?.t ?? null;
+    lastWebhookAt() {
+      return getMeta.get('last_webhook_at')?.value ?? null;
+    },
+    /** @returns {string} */
+    createdAt() {
+      return getMeta.get('created_at').value;
     },
     close() {
       db.close();

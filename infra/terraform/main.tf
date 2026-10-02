@@ -32,6 +32,7 @@ locals {
     repo_ref             = var.repo_ref
     vcn_cidr             = local.vcn_cidr
     data_mount           = local.data_mount
+    data_volume_gb       = var.data_volume_gb
     auto_update          = var.auto_update
     healthcheck_ping_url = var.healthcheck_ping_url
   })
@@ -68,6 +69,7 @@ module "cloudflare" {
   tunnel_secret           = random_bytes.tunnel_secret.base64
   allowed_emails          = var.allowed_emails
   create_otp_login_method = var.create_otp_login_method
+  existing_idp_ids        = var.existing_access_idp_ids
   session_duration        = var.access_session_duration
   api_allowed_countries   = var.api_allowed_countries
   api_rate_limit_per_10s  = var.api_rate_limit_per_10s

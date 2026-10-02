@@ -1,23 +1,53 @@
 #!/usr/bin/env bash
 # 稼働状況を確認し、HEALTHCHECK_PING_URL（Healthchecks.io 等）へ成功/失敗を通知する。cron で 10 分ごとに実行。
-# - 全コンテナが running かつ healthy（ヘルスチェックがあるもの）
-# - x-webhook-rss の /healthz（X_STALE_HOURS を超えて IFTTT から受信がなければ失敗）
-# - 最新のローカルバックアップが 26 時間以内
+# - 構築スクリプト（cloud-init）が失敗していないか
+# - 有効なプロファイルの全サービスが存在し running / healthy か（starting が 10 分を超えたら異常）
+# - x-webhook-rss の /status（X_STALE_HOURS を超えて IFTTT から受信がなければ異常）
+# - 最新のローカルバックアップが 26 時間以内か
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
-set -a; source .env; set +a
+# shellcheck source=scripts/lib.sh
+source scripts/lib.sh
+load_env || exit 1
 
 problems=()
 
-while read -r name state health; do
-  [[ "$state" == "running" ]] || problems+=("${name}: ${state}")
-  [[ -z "$health" || "$health" == "healthy" || "$health" == "starting" ]] || problems+=("${name}: ${health}")
-done < <(docker compose ps -a --format '{{.Service}} {{.State}} {{.Health}}')
+[[ -e /var/lib/freetier-reader/bootstrap.failed ]] && problems+=("bootstrap: failed (see /var/log/freetier-reader-bootstrap.log)")
 
-if [[ ",${COMPOSE_PROFILES:-}," == *",x,"* ]]; then
-  if ! docker compose exec -T x-webhook-rss wget -qO- http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
-    problems+=("x-webhook-rss: /healthz failed (stale or down)")
+if ! expected="$(docker compose config --services 2>&1)"; then
+  problems+=("compose: config failed: ${expected}")
+  expected=""
+fi
+if ! actual="$(docker compose ps -a --format '{{.Service}} {{.State}} {{.Health}} {{.ID}}' 2>&1)"; then
+  problems+=("compose: ps failed: ${actual}")
+  actual=""
+fi
+
+now="$(date +%s)"
+for service in $expected; do
+  line="$(grep -E "^${service} " <<<"$actual" | head -n 1)"
+  if [[ -z "$line" ]]; then
+    problems+=("${service}: missing")
+    continue
+  fi
+  read -r _ state health id <<<"$line"
+  [[ "$state" == "running" ]] || problems+=("${service}: ${state}")
+  case "$health" in
+    "" | healthy) ;;
+    starting)
+      started="$(docker inspect -f '{{.State.StartedAt}}' "$id" 2>/dev/null)"
+      if [[ -n "$started" ]] && (( now - $(date -d "$started" +%s) > 600 )); then
+        problems+=("${service}: starting for more than 10 minutes")
+      fi
+      ;;
+    *) problems+=("${service}: ${health}") ;;
+  esac
+done
+
+if profile_enabled x && grep -qx x-webhook-rss <<<"$expected"; then
+  if ! status="$(docker compose exec -T x-webhook-rss wget -qO- http://127.0.0.1:8080/status 2>&1)"; then
+    problems+=("x-webhook-rss: no webhook from IFTTT within X_STALE_HOURS, or service down: ${status}")
   fi
 fi
 
@@ -31,10 +61,12 @@ fi
 
 if ((${#problems[@]})); then
   printf '%s\n' "${problems[@]}" >&2
-  [[ -n "${HEALTHCHECK_PING_URL:-}" ]] && printf '%s\n' "${problems[@]}" \
-    | curl -fsS -m 10 --retry 3 -o /dev/null --data-binary @- "${HEALTHCHECK_PING_URL}/fail"
+  ping_url "${HEALTHCHECK_PING_URL:-}" /fail "$(printf '%s\n' "${problems[@]}")" || echo "warning: failed to ping monitor" >&2
   exit 1
 fi
 
-[[ -n "${HEALTHCHECK_PING_URL:-}" ]] && curl -fsS -m 10 --retry 3 -o /dev/null "${HEALTHCHECK_PING_URL}"
+if ! ping_url "${HEALTHCHECK_PING_URL:-}" ""; then
+  echo "error: all checks passed but the monitor ping failed" >&2
+  exit 1
+fi
 echo "ok"

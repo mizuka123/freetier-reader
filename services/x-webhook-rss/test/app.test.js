@@ -24,8 +24,8 @@ function config(overrides = {}) {
 }
 
 async function start(cfg = config()) {
-  db = openDb(':memory:');
   clock = new Date('2026-10-02T00:00:00Z');
+  db = openDb(':memory:', () => clock);
   logs = [];
   const log = { warn: (...a) => logs.push(['warn', a.join(' ')]), error: (...a) => logs.push(['error', a.join(' ')]) };
   server = createServer(createApp({ db, config: cfg, now: () => clock, log }));
@@ -78,6 +78,21 @@ test('トークンが違えば 404 で保存せず、トークンはログに出
   assert.ok(logs.every(([, m]) => !m.includes('wrong-token-value')));
 });
 
+test('不正トークンの警告は 1 分に 1 回にまとめる', async () => {
+  for (let i = 0; i < 5; i += 1) await postForm(sample(1), `bad-${i}`);
+  assert.equal(logs.filter(([, m]) => m.includes('bad token')).length, 1);
+  clock = new Date(clock.getTime() + 61_000);
+  await postForm(sample(1), 'bad-again');
+  assert.ok(logs.some(([, m]) => m.includes('bad token count=5')));
+});
+
+test('許可リストが空ならすべてのアカウントを受け付ける', async () => {
+  await stop();
+  await start(config({ allowedUsers: new Set() }));
+  const res = await postForm(sample(1, { username: 'anyone', link: 'https://x.com/anyone/status/1' }));
+  assert.equal(res.status, 201);
+});
+
 test('不正なパーセントエンコードでもプロセスは落ちず 400 を返す', async () => {
   assert.equal((await fetch(`${baseUrl}/feeds/x/%zz.xml`)).status, 400);
   assert.equal((await fetch(`${baseUrl}/hook/x/%E0%A4%A`, { method: 'POST' })).status, 400);
@@ -96,6 +111,7 @@ test('DB エラーでもプロセスは落ちず 500 を返してログに残す
   const res = await postForm(sample(1));
   assert.equal(res.status, 500);
   assert.ok(logs.some(([level]) => level === 'error'));
+  assert.equal((await fetch(`${baseUrl}/healthz`)).status, 500);
   db = openDb(':memory:'); // afterEach の close 用
 });
 
@@ -240,25 +256,65 @@ test('HEAD はヘッダーのみ返す', async () => {
   assert.equal(await res.text(), '');
 });
 
-// ---- ヘルスチェック ----
+// ---- ヘルスチェック / 受信状況 ----
 
-test('healthz: 受信前は lastReceivedAt=null で 200', async () => {
+const statusOf = async () => {
+  const res = await fetch(`${baseUrl}/status`);
+  return { code: res.status, body: await res.json() };
+};
+
+test('healthz は受信状況に関係なく 200（コンテナのヘルスチェック用）', async () => {
+  await stop();
+  await start(config({ staleHours: 1 }));
+  clock = new Date('2026-10-05T00:00:00Z');
   const res = await fetch(`${baseUrl}/healthz`);
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true, stale: false, lastReceivedAt: null });
+  assert.deepEqual(await res.json(), { ok: true });
 });
 
-test('healthz: 最終受信時刻を返す', async () => {
-  await postForm(sample(1));
-  assert.deepEqual(await (await fetch(`${baseUrl}/healthz`)).json(), { ok: true, stale: false, lastReceivedAt: '2026-10-02T00:00:00.000Z' });
+test('status: 受信前は DB 作成時刻から数える', async () => {
+  assert.deepEqual(await statusOf(), {
+    code: 200,
+    body: { ok: true, stale: false, lastWebhookAt: null, since: '2026-10-02T00:00:00.000Z' },
+  });
 });
 
-test('healthz: staleHours を超えて受信がなければ 503', async () => {
+test('status: 一度も受信しないまま staleHours を超えたら 503', async () => {
+  await stop();
+  await start(config({ staleHours: 24 }));
+  clock = new Date('2026-10-03T00:00:01Z');
+  const { code, body } = await statusOf();
+  assert.equal(code, 503);
+  assert.equal(body.stale, true);
+  assert.equal(body.lastWebhookAt, null);
+});
+
+test('status: staleHours を超えて受信がなければ 503、受信すれば戻る', async () => {
   await stop();
   await start(config({ staleHours: 24 }));
   await postForm(sample(1));
+  assert.equal((await statusOf()).body.lastWebhookAt, '2026-10-02T00:00:00.000Z');
   clock = new Date('2026-10-03T00:00:01Z');
-  const res = await fetch(`${baseUrl}/healthz`);
-  assert.equal(res.status, 503);
-  assert.equal((await res.json()).stale, true);
+  assert.equal((await statusOf()).code, 503);
+  await postForm(sample(2));
+  assert.equal((await statusOf()).code, 200);
+});
+
+test('status: 重複・保持範囲外の投稿でも受信時刻は更新される', async () => {
+  await stop();
+  await start(config({ staleHours: 24 }));
+  for (const n of [3, 4, 5]) await postForm(sample(n));
+  clock = new Date('2026-10-03T00:00:01Z');
+  assert.equal(await (await postForm(sample(5))).text(), 'duplicate');
+  assert.equal((await statusOf()).code, 200);
+  clock = new Date('2026-10-04T00:00:02Z');
+  assert.equal(await (await postForm(sample(1))).text(), 'pruned');
+  assert.equal((await statusOf()).code, 200);
+});
+
+test('status: staleHours=0 なら判定しない', async () => {
+  await stop();
+  await start(config({ staleHours: 0 }));
+  clock = new Date('2027-01-01T00:00:00Z');
+  assert.equal((await statusOf()).code, 200);
 });

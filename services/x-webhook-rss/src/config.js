@@ -21,7 +21,7 @@ function intInRange(env, name, fallback, min, max) {
  * @property {string} tzOffset       "+09:00" 形式
  * @property {Set<string>} allowedUsers  小文字化済み。空なら全員許可
  * @property {number} maxItems        アカウントごとの保持件数
- * @property {number} staleHours      最終受信からこの時間を超えたら /healthz が 503（0 なら無効）
+ * @property {number} staleHours      最終受信からこの時間を超えたら /status が 503（0 なら無効）
  * @property {string} publicBaseUrl   フィードの self リンクに使うベース URL
  */
 
@@ -57,7 +57,7 @@ export function loadConfig(env) {
     tzOffset,
     allowedUsers,
     maxItems: intInRange(env, 'X_MAX_ITEMS', 200, 1, 10000),
-    staleHours: intInRange(env, 'X_STALE_HOURS', 0, 0, 24 * 365),
+    staleHours: intInRange(env, 'X_STALE_HOURS', 72, 0, 24 * 365),
     publicBaseUrl: (env.X_FEED_BASE_URL || 'http://x-webhook-rss:8080').replace(/\/+$/, ''),
   };
 }

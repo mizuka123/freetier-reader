@@ -28,7 +28,7 @@
    - Account: `Cloudflare Tunnel: Edit`、`Access: Apps and Policies: Edit`、`Access: Organizations, Identity Providers, and Groups: Edit`
    - Zone: `DNS: Edit`、`Zone WAF: Edit`
 4. アカウント ID とゾーン ID を控える（ダッシュボードのドメイン概要ページ右下）
-5. Zero Trust → Settings → Authentication に既に「One-time PIN」がある場合は `create_otp_login_method = false`
+5. Zero Trust → Settings → Authentication に既に「One-time PIN」がある場合は、`create_otp_login_method = false` にして、Web UI で使うログイン方式の ID を `existing_access_idp_ids` に指定（未指定だとエラーになります。指定しないとアカウントの全ログイン方式が使えてしまうため）
 
 ### 監視（任意・推奨）
 [Healthchecks.io](https://healthchecks.io/) でチェックを 2 つ作り、ping URL を `healthcheck_ping_url` / `backup_ping_url` に設定（[operations.md](operations.md#監視)）。
@@ -102,10 +102,13 @@ cd /opt/freetier-reader && sudo docker compose up -d --wait
 ## VM を作り直す
 
 ```bash
+terraform plan -replace=module.oci.oci_core_instance.this
+# 確認: oci_core_volume.data は「変更なし」、oci_core_volume_attachment.data は作り直し、oci_identity_dynamic_group は更新
 terraform apply -replace=module.oci.oci_core_instance.this
 ```
 
-データボリュームはそのまま新しい VM に付け替えられ、構築スクリプトは既存のファイルシステムをそのままマウントします（Docker のボリュームが残るため、記事・設定はそのまま）。
+データボリュームはそのまま新しい VM に付け替えられ、構築スクリプトはラベル `ftr-data` の既存ファイルシステムをそのままマウントします（Docker のボリュームが残るため、記事・設定はそのまま）。
+新しいデータボリュームの初期化は「ラベルがなく、容量が `data_volume_gb` と一致する未使用ディスクがちょうど 1 台」のときだけ行い、曖昧な場合は失敗して通知します。
 
 ## すべて削除する
 
@@ -118,7 +121,8 @@ terraform apply -replace=module.oci.oci_core_instance.this
 | `Out of host capacity`（A1 の在庫切れ） | 時間をおいて再実行 / `availability_domain_index` を変える / PAYG にアップグレード |
 | `cloudflare_ruleset` が既存ルールと衝突 | そのゾーンに既に同じフェーズのルールセットがある。`terraform import` するか、ダッシュボードで既存ルールを移す |
 | One-time PIN の作成でエラー | 既にアカウントに存在する。`create_otp_login_method = false` |
-| 構築が終わらない / 通知が「失敗」 | Bastion 経由で SSH し `/var/log/freetier-reader-bootstrap.log` を確認。修正後 `sudo /usr/local/sbin/freetier-reader-bootstrap.sh` で再実行できる |
+| 構築が終わらない / 通知が「失敗」 | Bastion 経由で SSH し `/var/log/freetier-reader-bootstrap.log` を確認。修正後 `sudo /usr/local/sbin/freetier-reader-bootstrap.sh` で再実行できる（失敗中は `/var/lib/freetier-reader/bootstrap.failed` があり、`monitor.sh` が通知し続ける） |
+| 再起動後に Docker が起動しない | データボリュームがマウントできていない（Docker はマウント完了まで起動しない設定）。`lsblk -f` と `systemctl status docker` を確認 |
 
 ## 秘密情報の扱い
 

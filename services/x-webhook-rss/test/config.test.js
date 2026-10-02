@@ -10,7 +10,7 @@ test('既定値', () => {
   assert.equal(c.port, 8080);
   assert.equal(c.maxItems, 200);
   assert.equal(c.tzOffset, '+09:00');
-  assert.equal(c.staleHours, 0);
+  assert.equal(c.staleHours, 72);
   assert.equal(c.allowedUsers.size, 0);
   assert.equal(c.publicBaseUrl, 'http://x-webhook-rss:8080');
 });

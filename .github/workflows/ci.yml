@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -S warning scripts/*.sh
+      - run: shellcheck -S warning -x scripts/*.sh
       - name: init.sh generates secrets and reports missing values
         run: |
           tmp="$(mktemp -d)"
@@ -77,20 +77,27 @@ jobs:
       - run: terraform init -backend=false
       - run: terraform validate
       - name: Render cloud-init and check YAML / shell
+        shell: bash
         run: |
+          set -euo pipefail
           for au in true false; do
-            echo "templatefile(\"templates/cloud-init.yaml.tftpl\", { env_file_b64 = base64encode(\"A=1\"), repo_url = \"https://github.com/x/freetier-reader.git\", repo_ref = \"main\", vcn_cidr = \"10.0.0.0/16\", data_mount = \"/srv/freetier-reader\", auto_update = $au, healthcheck_ping_url = \"\" })" \
+            echo "templatefile(\"templates/cloud-init.yaml.tftpl\", { env_file_b64 = base64encode(\"A=1\"), repo_url = \"https://github.com/x/freetier-reader.git\", repo_ref = \"main\", vcn_cidr = \"10.0.0.0/16\", data_mount = \"/srv/freetier-reader\", data_volume_gb = 50, auto_update = $au, healthcheck_ping_url = \"\" })" \
               | terraform console | sed -e '1{/^<<EOT$/d}' -e '${/^EOT$/d}' > "/tmp/cloud-init-$au.yaml"
           done
           python3 - <<'PY'
           import yaml
           for au in ("true", "false"):
               d = yaml.safe_load(open(f"/tmp/cloud-init-{au}.yaml"))
+              assert d and d.get("write_files"), f"rendered cloud-init ({au}) is empty"
+              paths = [f["path"] for f in d["write_files"]]
+              assert "/etc/logrotate.d/freetier-reader" in paths, paths
+              cron = next(f["content"] for f in d["write_files"] if f["path"] == "/etc/cron.d/freetier-reader")
+              assert ("update.sh --auto" in cron) == (au == "true"), cron
               for f in d["write_files"]:
                   if f["path"].endswith(".sh"):
-                      open("/tmp/" + f["path"].rsplit("/", 1)[1], "w").write(f["content"])
+                      open(f"/tmp/{au}-" + f["path"].rsplit("/", 1)[1], "w").write(f["content"])
           PY
-          shellcheck -S warning /tmp/freetier-reader-bootstrap.sh /tmp/freetier-reader-egress-guard.sh
+          shellcheck -S warning /tmp/true-*.sh /tmp/false-*.sh
       - uses: terraform-linters/setup-tflint@v4
       - run: tflint --init && tflint --recursive
 

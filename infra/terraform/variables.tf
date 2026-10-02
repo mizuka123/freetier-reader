@@ -176,9 +176,19 @@ variable "allowed_emails" {
 }
 
 variable "create_otp_login_method" {
-  description = "Cloudflare Access のログイン方式「One-time PIN」を作成する（既にアカウントにある場合は false）"
+  description = "Cloudflare Access のログイン方式「One-time PIN」を作成する（既にアカウントにある場合は false にして existing_access_idp_ids を指定）"
   type        = bool
   default     = true
+}
+
+variable "existing_access_idp_ids" {
+  description = "create_otp_login_method = false のときに Web UI で許可する既存のログイン方式（IdP）の ID"
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = var.create_otp_login_method || length(var.existing_access_idp_ids) > 0
+    error_message = "create_otp_login_method = false の場合は existing_access_idp_ids に既存のログイン方式の ID を指定してください（Zero Trust → Settings → Authentication）。"
+  }
 }
 
 variable "access_session_duration" {
@@ -263,8 +273,8 @@ variable "x_stale_hours" {
   type        = number
   default     = 72
   validation {
-    condition     = var.x_stale_hours >= 0
-    error_message = "0 以上を指定してください。"
+    condition     = var.x_stale_hours == floor(var.x_stale_hours) && var.x_stale_hours >= 0 && var.x_stale_hours <= 8760
+    error_message = "0〜8760 の整数で指定してください（0 で無効）。"
   }
 }
 
@@ -273,8 +283,8 @@ variable "x_webhook_rss_image" {
   type        = string
   default     = ""
   validation {
-    condition     = var.x_webhook_rss_image == "" || can(regex("^[a-z0-9./_-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$", var.x_webhook_rss_image))
-    error_message = "tag@sha256:<digest> の形式で指定してください。"
+    condition     = var.x_webhook_rss_image == "" || can(regex("^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$", var.x_webhook_rss_image))
+    error_message = "registry/name[:tag]@sha256:<digest> の形式で指定してください。"
   }
 }
 
@@ -303,8 +313,8 @@ variable "healthcheck_ping_url" {
   type        = string
   default     = ""
   validation {
-    condition     = var.healthcheck_ping_url == "" || can(regex("^https://[^\\s]+$", var.healthcheck_ping_url))
-    error_message = "https:// で始まる URL を指定してください。"
+    condition     = var.healthcheck_ping_url == "" || can(regex("^https://[A-Za-z0-9._~:/?#@!&+,;=%-]+$", var.healthcheck_ping_url))
+    error_message = "https:// で始まる URL を指定してください（空白・引用符・$ などは使えません）。"
   }
 }
 
@@ -313,7 +323,7 @@ variable "backup_ping_url" {
   type        = string
   default     = ""
   validation {
-    condition     = var.backup_ping_url == "" || can(regex("^https://[^\\s]+$", var.backup_ping_url))
-    error_message = "https:// で始まる URL を指定してください。"
+    condition     = var.backup_ping_url == "" || can(regex("^https://[A-Za-z0-9._~:/?#@!&+,;=%-]+$", var.backup_ping_url))
+    error_message = "https:// で始まる URL を指定してください（空白・引用符・$ などは使えません）。"
   }
 }

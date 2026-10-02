@@ -79,7 +79,7 @@ export function normalizeLink(value) {
   } catch {
     return null;
   }
-  if (url.protocol !== 'https:' || !X_HOSTS.has(url.hostname.toLowerCase())) return null;
+  if (url.protocol !== 'https:' || !X_HOSTS.has(url.hostname)) return null;
   const m = STATUS_PATH.exec(url.pathname);
   return m ? `https://x.com/${m[1]}/status/${m[2]}` : null;
 }
@@ -106,10 +106,24 @@ export function createApp({ db, config, now = () => new Date(), log = console })
     return new HttpError(status, reason);
   }
 
+  // 不正トークンでの大量アクセスでログが溢れないよう、警告は 1 分に 1 回にまとめる
+  let badTokenCount = 0;
+  let badTokenLoggedAt = 0;
+  function rejectBadToken() {
+    badTokenCount += 1;
+    const t = now().getTime();
+    if (t - badTokenLoggedAt >= 60_000) {
+      log.warn(`hook rejected: status=404 reason=bad token count=${badTokenCount}`);
+      badTokenLoggedAt = t;
+      badTokenCount = 0;
+    }
+    return new HttpError(404, 'not found');
+  }
+
   async function handleHook(req, res, token) {
     if (req.method !== 'POST') throw new HttpError(405, 'method not allowed');
     // トークン不一致は存在しないパスと同じ応答にする（ログにトークンは出さない）
-    if (!tokenMatches(token, config.webhookToken)) throw reject(404, 'bad token');
+    if (!tokenMatches(token, config.webhookToken)) throw rejectBadToken();
 
     let payload;
     try {
@@ -145,6 +159,8 @@ export function createApp({ db, config, now = () => new Date(), log = console })
       createdAt: createdAt.toISOString(),
       receivedAt: receivedAt.toISOString(),
     }, config.maxItems);
+    // 重複・保持範囲外でも IFTTT からは正常に届いているので受信時刻を更新する
+    db.recordWebhook(receivedAt.toISOString());
 
     const status = { created: 201, duplicate: 200, pruned: 200 }[result];
     return send(req, res, status, result);
@@ -159,16 +175,22 @@ export function createApp({ db, config, now = () => new Date(), log = console })
     return send(req, res, 200, body, 'application/atom+xml; charset=utf-8');
   }
 
-  function handleHealth(req, res) {
-    const lastReceivedAt = db.lastReceivedAt();
-    const stale = config.staleHours > 0 && lastReceivedAt !== null
-      && now().getTime() - Date.parse(lastReceivedAt) > config.staleHours * 3600 * 1000;
-    return send(req, res, stale ? 503 : 200, JSON.stringify({ ok: !stale, stale, lastReceivedAt }), 'application/json');
+  // /status: IFTTT からの受信が途絶えていないか（監視用）。一度も受信していない場合は DB 作成時刻から数える
+  function handleStatus(req, res) {
+    const lastWebhookAt = db.lastWebhookAt();
+    const since = lastWebhookAt ?? db.createdAt();
+    const stale = config.staleHours > 0 && now().getTime() - Date.parse(since) > config.staleHours * 3600 * 1000;
+    return send(req, res, stale ? 503 : 200, JSON.stringify({ ok: !stale, stale, lastWebhookAt, since }), 'application/json');
   }
 
   async function route(req, res) {
     const { pathname } = new URL(req.url, 'http://localhost');
-    if (pathname === '/healthz') return handleHealth(req, res);
+    // /healthz: プロセスと DB が動いているか（コンテナのヘルスチェック用。受信の有無には依存しない）
+    if (pathname === '/healthz') {
+      db.createdAt();
+      return send(req, res, 200, JSON.stringify({ ok: true }), 'application/json');
+    }
+    if (pathname === '/status') return handleStatus(req, res);
 
     const hook = /^\/hook\/x\/([^/]+)$/.exec(pathname);
     if (hook) return handleHook(req, res, safeDecode(hook[1]));
