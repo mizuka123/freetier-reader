@@ -30,13 +30,21 @@ const check = (label, fn) => {
 };
 
 try {
-  // ---- ログイン ----
+  // ---- ログイン（Miniflux は未ログイン時に / でログインフォームを表示し、POST /login で認証する） ----
   const context = await browser.newContext({ colorScheme: 'light' });
   const page = await context.newPage();
-  await page.goto(`${base}/login`);
-  await page.fill('input[name="username"]', username);
+  await page.goto(`${base}/`);
+  try {
+    await page.fill('input[name="username"]', username, { timeout: 10_000 });
+  } catch (err) {
+    console.error(`login form not found at ${page.url()}:\n${(await page.content()).slice(0, 1500)}`);
+    throw err;
+  }
   await page.fill('input[name="password"]', password);
-  await Promise.all([page.waitForURL((url) => !url.pathname.startsWith('/login')), page.click('button[type="submit"]')]);
+  await Promise.all([
+    page.waitForURL((url) => url.pathname !== '/' && !url.pathname.startsWith('/login')),
+    page.click('button[type="submit"]'),
+  ]);
   const storage = await context.storageState();
 
   // ---- 契約: 上流のテーマ変数 ----
