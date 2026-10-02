@@ -272,37 +272,68 @@ test('healthz は受信状況に関係なく 200（コンテナのヘルスチ�
   assert.deepEqual(await res.json(), { ok: true });
 });
 
+const oneUser = (extra = {}) => config({ allowedUsers: new Set(['example_user']), ...extra });
+
 test('status: 受信前は DB 作成時刻から数える', async () => {
   assert.deepEqual(await statusOf(), {
     code: 200,
-    body: { ok: true, stale: false, lastWebhookAt: null, since: '2026-10-02T00:00:00.000Z' },
+    body: {
+      ok: true,
+      stale: false,
+      staleUsers: [],
+      lastWebhookAt: null,
+      users: { example_user: null, other_user: null },
+      createdAt: '2026-10-02T00:00:00.000Z',
+    },
   });
 });
 
 test('status: 一度も受信しないまま staleHours を超えたら 503', async () => {
   await stop();
-  await start(config({ staleHours: 24 }));
+  await start(oneUser({ staleHours: 24 }));
   clock = new Date('2026-10-03T00:00:01Z');
   const { code, body } = await statusOf();
   assert.equal(code, 503);
   assert.equal(body.stale, true);
-  assert.equal(body.lastWebhookAt, null);
+  assert.deepEqual(body.staleUsers, ['example_user']);
 });
 
 test('status: staleHours を超えて受信がなければ 503、受信すれば戻る', async () => {
   await stop();
-  await start(config({ staleHours: 24 }));
+  await start(oneUser({ staleHours: 24 }));
   await postForm(sample(1));
-  assert.equal((await statusOf()).body.lastWebhookAt, '2026-10-02T00:00:00.000Z');
+  assert.equal((await statusOf()).body.users.example_user, '2026-10-02T00:00:00.000Z');
   clock = new Date('2026-10-03T00:00:01Z');
   assert.equal((await statusOf()).code, 503);
   await postForm(sample(2));
   assert.equal((await statusOf()).code, 200);
 });
 
-test('status: 重複・保持範囲外の投稿でも受信時刻は更新される', async () => {
+test('status: 一部のアカウントだけ途絶えた場合も検知する', async () => {
   await stop();
   await start(config({ staleHours: 24 }));
+  await postForm(sample(1));
+  await postForm(sample(1, { username: 'other_user', link: 'https://x.com/other_user/status/9' }));
+  clock = new Date('2026-10-03T00:00:01Z');
+  await postForm(sample(2));
+  const { code, body } = await statusOf();
+  assert.equal(code, 503);
+  assert.deepEqual(body.staleUsers, ['other_user']);
+});
+
+test('status: 許可リストが空なら全体の最終受信で判定する', async () => {
+  await stop();
+  await start(config({ staleHours: 24, allowedUsers: new Set() }));
+  await postForm(sample(1, { username: 'anyone', link: 'https://x.com/anyone/status/1' }));
+  clock = new Date('2026-10-02T23:00:00Z');
+  assert.equal((await statusOf()).code, 200);
+  clock = new Date('2026-10-03T00:00:01Z');
+  assert.equal((await statusOf()).code, 503);
+});
+
+test('status: 重複・保持範囲外の投稿でも受信時刻は更新される', async () => {
+  await stop();
+  await start(oneUser({ staleHours: 24 }));
   for (const n of [3, 4, 5]) await postForm(sample(n));
   clock = new Date('2026-10-03T00:00:01Z');
   assert.equal(await (await postForm(sample(5))).text(), 'duplicate');

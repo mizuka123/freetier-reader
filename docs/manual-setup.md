@@ -25,7 +25,7 @@ Docker と Docker Compose が動く Linux サーバならどこでも構築で�
    - パス: `/v1/`、`/reader/`、`/fever/`、`/accounts/ClientLogin`、`/hook/x/`（末尾の `/` でパスの境界を区切る）
    - ポリシー: Bypass / Include: Everyone
 4. WAF で次を設定（Free プランで可。Terraform の定義は `infra/terraform/modules/cloudflare/main.tf`）
-   - Rate limiting rule: 上記 5 パスに 10 秒あたり 50 リクエスト（同一 IP）
+   - Rate limiting rule: 上記 5 パスに 10 秒あたり 150 リクエスト（同一 IP）
    - Custom rule: 同期 API の 4 パス（`/hook/x/` 以外）を日本以外からブロック
 5. [operations.md のチェックリスト](operations.md#初回構築後の確認チェックリストe2e) の #1〜#7 で境界を確認
 

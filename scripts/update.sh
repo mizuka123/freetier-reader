@@ -2,16 +2,13 @@
 # リポジトリとコンテナを更新する。
 #   ./scripts/update.sh          手動更新
 #   ./scripts/update.sh --auto   cron からの自動更新（DB スキーマが変わりうる更新は行わず通知のみ）
-# 失敗したら直前のコミットに戻して起動し直し、それでも起動しなければ更新前のバックアップから復元する。
+# 失敗したら直前のコミットに戻して起動し直す。Miniflux / PostgreSQL のイメージが変わる更新では
+# マイグレーション済みの DB を旧版で使わないよう、更新前のバックアップから必ず復元する。
 set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib.sh
 source scripts/lib.sh
-load_env
-
-auto=false
-[[ "${1:-}" == "--auto" ]] && auto=true
 
 notify_fail() {
   echo "error: $1" >&2
@@ -19,10 +16,13 @@ notify_fail() {
 }
 trap 'notify_fail "update failed before applying changes (line $LINENO)"; exit 1' ERR
 
+load_env
+auto=false
+[[ "${1:-}" == "--auto" ]] && auto=true
 ops_lock
 
-if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
-  notify_fail "local changes in the repository; commit or discard them before updating"
+if [[ -n "$(git status --porcelain)" ]]; then
+  notify_fail "the repository has local changes or untracked files; commit, discard or .gitignore them before updating"
   exit 1
 fi
 
@@ -35,10 +35,12 @@ if [[ "$before" == "$target" ]]; then
 fi
 git merge-base --is-ancestor "$before" "$target" || { notify_fail "upstream is not a fast-forward of ${before:0:7}"; exit 1; }
 
-# DB を持つサービス（Miniflux / PostgreSQL）のイメージが変わる更新は、マイグレーションで
-# 旧版に戻せなくなる可能性があるため自動更新では行わない
-if $auto && git diff --name-only "$before" "$target" -- compose.yml | grep -q . \
-  && git diff "$before" "$target" -- compose.yml | grep -qE '^[+-][[:space:]]+image: (miniflux|postgres)/?'; then
+# DB を持つサービス（Miniflux / PostgreSQL）のイメージが変わるか
+db_images_changed=false
+if git diff "$before" "$target" -- compose.yml | grep -qE '^[+-][[:space:]]+image: (miniflux|postgres)/?'; then
+  db_images_changed=true
+fi
+if $auto && $db_images_changed; then
   notify_fail "Miniflux/PostgreSQL image changed in ${target:0:7}; run scripts/update.sh manually"
   exit 1
 fi
@@ -51,9 +53,13 @@ echo "repo: ${before:0:7} -> ${target:0:7}"
 
 rollback() {
   trap - ERR
+  set +e
   echo "error: update failed, rolling back to ${before:0:7}" >&2
-  git reset --hard --quiet "$before"
-  if docker compose up -d --build --wait; then
+  if ! git reset --hard --quiet "$before"; then
+    notify_fail "update to ${target:0:7} failed and ROLLBACK FAILED (git reset); manual recovery required (backup: ${pre_update_archive})"
+    exit 1
+  fi
+  if ! $db_images_changed && docker compose up -d --build --wait; then
     notify_fail "update to ${target:0:7} failed; rolled back to ${before:0:7}"
   elif ./scripts/restore.sh --yes "$pre_update_archive"; then
     notify_fail "update to ${target:0:7} failed; rolled back to ${before:0:7} and restored ${pre_update_archive}"

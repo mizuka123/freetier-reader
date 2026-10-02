@@ -6,7 +6,7 @@ VM 上の cron が次を実行します（Terraform 構築の場合は自動設�
 
 | ジョブ | 間隔 | 内容 | 通知先 |
 |---|---|---|---|
-| `scripts/monitor.sh` | 10 分 | 構築スクリプトの失敗マーカー（`/var/lib/freetier-reader/bootstrap.failed`）、有効なプロファイルの全サービスが存在し running / healthy か（starting が 10 分超は異常）、x-webhook-rss の `/status`（`X_STALE_HOURS` 以内に受信しているか）、26 時間以内のバックアップがあるか | `HEALTHCHECK_PING_URL` |
+| `scripts/monitor.sh` | 10 分 | 構築スクリプトの失敗マーカー（`/var/lib/freetier-reader/bootstrap.failed`）、有効なプロファイルの全サービスが存在し running / healthy か（starting が 10 分超は異常）、x-webhook-rss の `/status`（アカウントごとに `X_STALE_HOURS` 以内に受信しているか）、26 時間以内にローカル・オフサイトのバックアップが成功しているか、データ領域の使用率が 90% 未満か | `HEALTHCHECK_PING_URL` |
 | `scripts/backup.sh` | 毎日 03:30 JST | バックアップの開始・成功・失敗 | `BACKUP_PING_URL` |
 | cloud-init の構築スクリプト | 初回起動時 | 構築の成功・失敗（失敗時はログ末尾を送信） | `HEALTHCHECK_PING_URL` |
 
@@ -44,11 +44,13 @@ sudo ./scripts/restore.sh /srv/freetier-reader/backups/20261002T183000Z.tar.gz
 
 1. アーカイブの中身を検証（絶対パス・`..`・リンクなどを含むものは拒否）
 2. Miniflux と x-webhook-rss を停止
-3. PostgreSQL は一時 DB `miniflux_restore` に復元し、成功したら入れ替え。**元の DB は `miniflux_before_restore_<時刻>` として残す**
-4. SQLite を置き換えて整合性チェック
+3. PostgreSQL は一時 DB `miniflux_restore` に、SQLite は一時ファイルに復元して検証（整合性チェック）
+4. 両方そろってから入れ替え。**元のデータは `miniflux_before_restore_<時刻>`（DB）と `x-webhook-rss.db.before-restore-<時刻>` として残す**
 5. 全サービスを起動し、ヘルスチェックを待つ
+6. 古い退避データを削除（最新 1 世代だけ残す）
 
-途中で失敗した場合は元の DB のまま、サービスを起動し直します。復元後に問題がなければ、以前の DB を削除してください:
+3〜5 のどこで失敗しても、PostgreSQL・SQLite とも元のデータに戻してサービスを起動し直します（入れ替え後に失敗した場合、失敗した復元結果は `miniflux_failed_restore_<時刻>` として残ります）。
+復元後に問題がなければ、以前の DB を削除してください（次回のリストアでも自動的に削除されます）:
 
 ```bash
 docker compose exec postgres psql -U miniflux -d postgres -c '\l'   # 名前を確認
@@ -67,10 +69,10 @@ docker compose exec postgres psql -U miniflux -d postgres -c 'DROP DATABASE "min
 
 `update.sh` の動作:
 
-1. リポジトリに未コミットの変更があれば中止（`git reset` で消さないため）
+1. リポジトリに未コミットの変更・未追跡ファイルがあれば中止（`git reset` で消さないため）
 2. 更新前にバックアップを取得
 3. fast-forward で更新し、`docker compose up --build --wait`
-4. 失敗したら直前のコミットに戻して起動。それも失敗したら更新前のバックアップから復元。結果は `HEALTHCHECK_PING_URL` に通知
+4. 失敗したら直前のコミットに戻して起動。Miniflux / PostgreSQL のイメージが変わる更新だった場合、またはそれでも起動しない場合は、更新前のバックアップから復元。結果は `HEALTHCHECK_PING_URL` に通知
 
 `--auto`（cron）では、**Miniflux / PostgreSQL のイメージが変わる更新は行わず通知のみ**にします（DB のマイグレーション後は旧版に戻せない可能性があるため）。通知を受けたら手動で `sudo ./scripts/update.sh` を実行してください。
 

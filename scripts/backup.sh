@@ -82,11 +82,14 @@ if [[ -n "${OCI_BACKUP_BUCKET:-}" ]]; then
   remote_size="$(rclone size --json "oos:${OCI_BACKUP_BUCKET}/${stamp}.tar.gz" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')"
   [[ "$remote_size" == "$(stat -c %s "$archive")" ]] || fail "offsite upload size mismatch (${remote_size:-none})"
   echo "offsite backup: oos:${OCI_BACKUP_BUCKET}/${stamp}.tar.gz"
+  # monitor.sh がオフサイトの成功を確認するためのマーカー
+  echo "$stamp" > "${backup_dir}/.last-offsite-ok"
   # 保持期間はバケットのライフサイクルポリシー（Terraform: backup_retention_days）で管理
 else
   echo "WARNING: OCI_BACKUP_BUCKET is not set; no offsite copy was made (VM loss = data loss)" >&2
 fi
 
+echo "$stamp" > "${backup_dir}/.last-local-ok"
 ping_url "${BACKUP_PING_URL:-}" "" || echo "warning: failed to ping monitor" >&2
 echo "backup completed"
 echo "$archive"

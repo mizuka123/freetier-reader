@@ -212,9 +212,9 @@ variable "api_allowed_countries" {
 }
 
 variable "api_rate_limit_per_10s" {
-  description = "同期 API と Webhook の 10 秒あたりリクエスト上限（同一 IP）"
+  description = "同期 API と Webhook の 10 秒あたりリクエスト上限（同一 IP）。初回同期で超える場合は引き上げる（docs/apps.md）"
   type        = number
-  default     = 50
+  default     = 150
   validation {
     condition     = var.api_rate_limit_per_10s >= 1
     error_message = "1 以上を指定してください。"

@@ -160,7 +160,7 @@ export function createApp({ db, config, now = () => new Date(), log = console })
       receivedAt: receivedAt.toISOString(),
     }, config.maxItems);
     // 重複・保持範囲外でも IFTTT からは正常に届いているので受信時刻を更新する
-    db.recordWebhook(receivedAt.toISOString());
+    db.recordWebhook(key, receivedAt.toISOString());
 
     const status = { created: 201, duplicate: 200, pruned: 200 }[result];
     return send(req, res, status, result);
@@ -175,12 +175,25 @@ export function createApp({ db, config, now = () => new Date(), log = console })
     return send(req, res, 200, body, 'application/atom+xml; charset=utf-8');
   }
 
-  // /status: IFTTT からの受信が途絶えていないか（監視用）。一度も受信していない場合は DB 作成時刻から数える
+  // /status: IFTTT からの受信が途絶えていないか（監視用）。
+  // 許可リストがあればアカウントごとに判定し、一部のアプレットだけ止まった場合も検知する。
+  // 一度も受信していないアカウントは DB 作成時刻から数える。
   function handleStatus(req, res) {
+    const createdAt = db.createdAt();
+    const isStale = (since) => config.staleHours > 0
+      && now().getTime() - Date.parse(since) > config.staleHours * 3600 * 1000;
+
     const lastWebhookAt = db.lastWebhookAt();
-    const since = lastWebhookAt ?? db.createdAt();
-    const stale = config.staleHours > 0 && now().getTime() - Date.parse(since) > config.staleHours * 3600 * 1000;
-    return send(req, res, stale ? 503 : 200, JSON.stringify({ ok: !stale, stale, lastWebhookAt, since }), 'application/json');
+    const users = {};
+    const staleUsers = [];
+    for (const user of [...config.allowedUsers].sort()) {
+      const last = db.lastWebhookAt(user);
+      users[user] = last;
+      if (isStale(last ?? createdAt)) staleUsers.push(user);
+    }
+    const stale = config.allowedUsers.size > 0 ? staleUsers.length > 0 : isStale(lastWebhookAt ?? createdAt);
+    const body = { ok: !stale, stale, staleUsers, lastWebhookAt, users, createdAt };
+    return send(req, res, stale ? 503 : 200, JSON.stringify(body), 'application/json');
   }
 
   async function route(req, res) {

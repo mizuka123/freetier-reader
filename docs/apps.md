@@ -29,8 +29,10 @@ Miniflux 公式ドキュメント「Third-Party Applications」掲載アプリ�
 | Google Reader API | `https://reader.example.com`（アプリによっては `/reader/api/0`） | 連携画面で設定したユーザー名 / パスワード |
 | Fever API | `https://reader.example.com/fever/` | 連携画面で設定したユーザー名 / パスワード |
 
-これらのパスは Cloudflare Access の対象外ですが、Cloudflare WAF でレート制限と国別制限（既定: 日本のみ）がかかっています。
-海外で使うときは `api_allowed_countries` を一時的に変更してください。
+これらのパスは Cloudflare Access の対象外ですが、Cloudflare WAF でレート制限（既定: 同一 IP から 10 秒あたり 150 リクエスト）と国別制限（既定: 日本のみ）がかかっています。
+
+- 海外で使うときは `api_allowed_countries` を一時的に変更してください。
+- 購読数が多い状態でアプリの初回同期がブロックされる（HTTP 429 / Cloudflare のブロック画面）場合は、`api_rate_limit_per_10s` を引き上げてください。Cloudflare のダッシュボード（Security → Events）でブロックされたリクエスト数を確認できます。
 
 ## ブラウザ（PC・iPad・スマホ）
 

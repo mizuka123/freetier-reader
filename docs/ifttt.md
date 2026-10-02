@@ -70,13 +70,16 @@ Miniflux → フィード → 追加 で上記 URL を入力し、カテゴリ�
 
 ```bash
 docker compose exec x-webhook-rss wget -qO- http://127.0.0.1:8080/status
-# 受信後: {"ok":true,"stale":false,"lastWebhookAt":"2026-10-02T13:15:00.000Z","since":"2026-10-02T13:15:00.000Z"}
-# 受信前: {"ok":true,"stale":false,"lastWebhookAt":null,"since":"<DB 作成時刻>"}
+# {"ok":true,"stale":false,"staleUsers":[],"lastWebhookAt":"2026-10-02T13:15:00.000Z",
+#  "users":{"example_user1":"2026-10-02T13:15:00.000Z","example_user2":"2026-10-01T22:00:00.000Z"},
+#  "createdAt":"2026-10-01T00:00:00.000Z"}
 docker compose logs --tail 50 x-webhook-rss   # 拒否された Webhook は理由付きでログに出る
 ```
 
-- `/status` は、最後に正当な Webhook を受け取ってから（一度も受け取っていなければ DB 作成から）`X_STALE_HOURS`（既定 72）を超えると 503 を返し、`scripts/monitor.sh` が通知します（[operations.md](operations.md#監視)）。
-  その場合は IFTTT のアプレット実行履歴（Activity）を確認してください。
+- `/status` は `X_ALLOWED_USERS` の**アカウントごと**に、最後に正当な Webhook を受け取ってから（一度も受け取っていなければ DB 作成から）`X_STALE_HOURS`（既定 72）を超えたかを判定し、1 つでも超えていれば 503 と `staleUsers` を返します。`scripts/monitor.sh` がその内容を通知します（[operations.md](operations.md#監視)）。
+  その場合は該当アカウントの IFTTT アプレットの実行履歴（Activity）を確認してください。
+- `X_ALLOWED_USERS` が空の場合は、全アカウント合計の最終受信で判定します。
+- 投稿頻度が低いアカウントがある場合は、`X_STALE_HOURS` をそのアカウントの投稿間隔より長くしてください。
 - 重複した投稿や古すぎて保存されなかった投稿も「受信」として数えます。
 - `/healthz` はプロセスの生存確認（コンテナのヘルスチェック用）で、受信状況には関係なく 200 を返します。
 

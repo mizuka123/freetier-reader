@@ -24,7 +24,8 @@ export function openDb(path, now = () => new Date()) {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA busy_timeout = 5000;
-    -- created_at: DB 作成時刻 / last_webhook_at: 最後に正当な Webhook を受け取った時刻（重複・範囲外も含む）
+    -- created_at: DB 作成時刻
+    -- last_webhook_at[:<username>]: 最後に正当な Webhook を受け取った時刻（重複・範囲外も含む。全体とアカウント別）
     CREATE TABLE IF NOT EXISTS meta (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -75,13 +76,20 @@ export function openDb(path, now = () => new Date()) {
     listPosts(username, limit) {
       return listByUser.all(username, limit);
     },
-    /** @param {string} iso 正当な Webhook を受け取った時刻 */
-    recordWebhook(iso) {
+    /**
+     * @param {string} username 小文字化済み
+     * @param {string} iso 正当な Webhook を受け取った時刻
+     */
+    recordWebhook(username, iso) {
       setMeta.run('last_webhook_at', iso);
+      setMeta.run(`last_webhook_at:${username}`, iso);
     },
-    /** @returns {string | null} */
-    lastWebhookAt() {
-      return getMeta.get('last_webhook_at')?.value ?? null;
+    /**
+     * @param {string} [username] 省略時は全アカウント
+     * @returns {string | null}
+     */
+    lastWebhookAt(username) {
+      return getMeta.get(username ? `last_webhook_at:${username}` : 'last_webhook_at')?.value ?? null;
     },
     /** @returns {string} */
     createdAt() {

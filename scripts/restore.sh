@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # backup.sh が作ったアーカイブから復元する。
 #   ./scripts/restore.sh [--yes] [--skip-x] backups/20261002T183000Z.tar.gz
-# - PostgreSQL は一時 DB（miniflux_restore）に復元・検証してから入れ替える。元の DB は
-#   miniflux_before_restore_<時刻> として残す（不要になったら docs/operations.md の手順で削除）。
-# - 失敗した場合は元の DB のまま、停止したサービスを起動し直す。
+# 1. 復元データを一時領域に用意して検証（PostgreSQL: 一時 DB miniflux_restore、SQLite: 一時ファイル）
+# 2. 両方そろってから入れ替え、全サービスの起動を確認
+# 3. 途中で失敗したら PostgreSQL・SQLite とも元に戻してサービスを起動し直す
+# 元のデータは miniflux_before_restore_<時刻>（DB）と x-webhook-rss.db.before-restore-<時刻> として最新 1 世代だけ残す。
 set -Eeuo pipefail
 umask 077
 
@@ -26,7 +27,11 @@ done
 archive="${1:?usage: restore.sh [--yes] [--skip-x] <backup.tar.gz>}"
 [[ -f "$archive" ]] || { echo "error: $archive not found" >&2; exit 1; }
 
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
 # ---- アーカイブの検証（絶対パス・..・リンク・特殊ファイルを拒否） ----
+members="$(tar -tvzf "$archive")"
 while IFS= read -r entry; do
   type="${entry:0:1}"
   name="${entry##* }"
@@ -34,9 +39,8 @@ while IFS= read -r entry; do
     echo "error: unsafe archive member: $entry" >&2
     exit 1
   fi
-done < <(tar -tvzf "$archive")
+done <<<"$members"
 
-tmp="$(mktemp -d)"
 chmod 755 "$tmp"
 tar -C "$tmp" --no-same-owner -xzf "$archive"
 [[ -s "$tmp/miniflux.dump" ]] || { echo "error: miniflux.dump is missing or empty" >&2; exit 1; }
@@ -53,26 +57,52 @@ if ! $assume_yes; then
 fi
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-psql_admin() { docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U miniflux -d postgres -qc "$1"; }
+old_db="miniflux_before_restore_${stamp}"
+x_db=/data/x-webhook-rss.db
+x_staged="${x_db}.restore-${stamp}"
+x_old="${x_db}.before-restore-${stamp}"
 
-swapped=false
+psql_admin() { docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U miniflux -d postgres -qtAc "$1"; }
+terminate() { psql_admin "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$1' AND pid <> pg_backend_pid();" >/dev/null; }
+# 停止中の x-webhook-rss のボリュームでコマンドを実行する
+x_run() { docker compose run --rm --no-deps -T --user root --entrypoint sh -v "$tmp:/restore:ro" x-webhook-rss -c "set -e; $1"; }
+
+# 入れ替えの進み具合（失敗時にどこまで戻すかの判定に使う）
+pg_state=none   # none → old_renamed（miniflux を退避済み）→ swapped（復元 DB を miniflux に）
+x_state=none    # none → staged（一時ファイル作成済み）→ swapped（入れ替え済み）
+
 on_error() {
-  echo "error: restore failed at line $1" >&2
-  if ! $swapped; then
-    psql_admin "DROP DATABASE IF EXISTS miniflux_restore;" || true
-    echo "元の PostgreSQL データはそのままです。" >&2
-  fi
-  echo "サービスを起動し直します..." >&2
+  trap - ERR
+  echo "error: restore failed at line $1; reverting..." >&2
+  case "$pg_state" in
+    none)
+      psql_admin "DROP DATABASE IF EXISTS miniflux_restore;" || true ;;
+    old_renamed)
+      psql_admin "ALTER DATABASE ${old_db} RENAME TO miniflux;" || echo "!! manual action: rename ${old_db} back to miniflux" >&2
+      psql_admin "DROP DATABASE IF EXISTS miniflux_restore;" || true ;;
+    swapped)
+      docker compose stop miniflux >/dev/null 2>&1 || true
+      terminate miniflux || true
+      { psql_admin "ALTER DATABASE miniflux RENAME TO miniflux_failed_restore_${stamp};" \
+        && psql_admin "ALTER DATABASE ${old_db} RENAME TO miniflux;"; } \
+        || echo "!! manual action: restore ${old_db} as miniflux" >&2 ;;
+  esac
+  case "$x_state" in
+    staged) x_run "rm -f '${x_staged}'" || true ;;
+    swapped) x_run "rm -f '${x_db}' '${x_db}-wal' '${x_db}-shm' && mv '${x_old}' '${x_db}'" \
+      || echo "!! manual action: move ${x_old} back to ${x_db}" >&2 ;;
+  esac
+  echo "元のデータに戻してサービスを起動し直します..." >&2
   docker compose up -d || true
-  rm -rf "$tmp"
+  exit 1
 }
 trap 'on_error $LINENO' ERR
-trap 'rm -rf "$tmp"' EXIT
 
 echo "stopping writers..."
 docker compose stop miniflux
 $restore_x && docker compose stop x-webhook-rss
 
+# ---- 1. 一時領域に復元して検証 ----
 echo "restoring PostgreSQL into a temporary database..."
 docker compose up -d --wait postgres
 psql_admin "DROP DATABASE IF EXISTS miniflux_restore;"
@@ -80,28 +110,44 @@ psql_admin "CREATE DATABASE miniflux_restore OWNER miniflux;"
 docker compose exec -T postgres pg_restore -U miniflux -d miniflux_restore \
   --no-owner --single-transaction --exit-on-error < "$tmp/miniflux.dump"
 
-echo "swapping databases..."
-psql_admin "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'miniflux' AND pid <> pg_backend_pid();" >/dev/null
-psql_admin "ALTER DATABASE miniflux RENAME TO miniflux_before_restore_${stamp};"
+if $restore_x; then
+  echo "staging x-webhook-rss SQLite..."
+  x_state=staged
+  x_run "cp /restore/x-webhook-rss.db '${x_staged}' && chown node:node '${x_staged}'
+    node -e \"const { DatabaseSync } = require('node:sqlite');
+      const db = new DatabaseSync('${x_staged}');
+      const r = db.prepare('PRAGMA integrity_check').get();
+      if (Object.values(r)[0] !== 'ok') { console.error(r); process.exit(1); }
+      console.log('posts:', db.prepare('SELECT COUNT(*) AS n FROM posts').get().n);
+      db.close();\""
+fi
+
+# ---- 2. 入れ替え ----
+echo "swapping data..."
+terminate miniflux
+psql_admin "ALTER DATABASE miniflux RENAME TO ${old_db};"
+pg_state=old_renamed
 psql_admin "ALTER DATABASE miniflux_restore RENAME TO miniflux;"
-swapped=true
+pg_state=swapped
 
 if $restore_x; then
-  echo "restoring x-webhook-rss SQLite..."
-  # 停止中のボリュームに直接書き込む（WAL/SHM も削除して整合性を保つ）
-  docker compose run --rm --no-deps -T --user root --entrypoint sh -v "$tmp:/restore:ro" x-webhook-rss -c '
-    set -e
-    rm -f /data/x-webhook-rss.db-wal /data/x-webhook-rss.db-shm
-    cp /restore/x-webhook-rss.db /data/x-webhook-rss.db
-    chown node:node /data/x-webhook-rss.db
-    node -e "const { DatabaseSync } = require(\"node:sqlite\");
-      const db = new DatabaseSync(\"/data/x-webhook-rss.db\");
-      const r = db.prepare(\"PRAGMA integrity_check\").get();
-      if (Object.values(r)[0] !== \"ok\") { console.error(r); process.exit(1); }
-      console.log(\"posts:\", db.prepare(\"SELECT COUNT(*) AS n FROM posts\").get().n);"'
+  x_run "if [ -f '${x_db}' ]; then mv '${x_db}' '${x_old}'; else : > '${x_old}'; fi
+    rm -f '${x_db}-wal' '${x_db}-shm'
+    mv '${x_staged}' '${x_db}'"
+  x_state=swapped
 fi
 
 echo "starting services..."
 docker compose up -d --wait
+trap - ERR
+
+# ---- 3. 古い退避データの整理（最新 1 世代だけ残す） ----
+for db in $(psql_admin "SELECT datname FROM pg_database WHERE datname LIKE 'miniflux_before_restore_%' AND datname <> '${old_db}';"); do
+  psql_admin "DROP DATABASE \"${db}\";" && echo "dropped old backup database ${db}"
+done
+if $restore_x; then
+  x_run "find /data -maxdepth 1 -name 'x-webhook-rss.db.before-restore-*' ! -name '$(basename "$x_old")' -delete" || true
+fi
+
 echo "restore completed"
-echo "以前の DB は miniflux_before_restore_${stamp} として残っています（確認後に削除: docs/operations.md）"
+echo "以前のデータは ${old_db}（PostgreSQL）として残っています（確認後に削除: docs/operations.md）"
