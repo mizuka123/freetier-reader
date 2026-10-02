@@ -66,7 +66,7 @@ const PAIRS = [
   ...TEXT_ON_SURFACES.flatMap((fg) => SURFACES.map((bg) => [fg, bg, 4.5])),
   ['--header-link-color', '--body-background', 4.5],
   ['--header-active-link-color', '--body-background', 4.5],
-  ['--page-header-title-color', '--body-background', 4.5],
+  ['--modal-color', '--modal-background', 4.5],
   ['--table-th-color', '--table-th-background', 4.5],
   ['--table-tr-hover-color', '--table-tr-hover-background-color', 4.5],
   ['--link-color', '--table-tr-hover-background-color', 4.5],

@@ -61,7 +61,6 @@
   --header-link-hover-color: var(--dads-blue-1000);
   --header-active-link-color: var(--dads-blue-900);
 
-  --page-header-title-color: var(--dads-gray-900);
   --page-header-title-border-color: var(--dads-gray-200);
 
   --logo-color: var(--dads-gray-900);
@@ -127,8 +126,15 @@
   --current-item-border-color: var(--dads-blue-900);
   --current-item-box-shadow: var(--dads-elevation-1);
 
+  --modal-background: var(--dads-white);
+  --modal-color: var(--dads-gray-800);
+  --modal-box-shadow: var(--dads-elevation-1);
+
   --entry-header-border-color: var(--dads-gray-200);
   --entry-header-title-link-color: var(--dads-gray-900);
+  --entry-content-font-family: var(--dads-font-sans);
+  --entry-content-font-weight: 400;
+  --entry-content-quote-font-family: var(--dads-font-sans);
   --entry-content-color: var(--dads-gray-800);
   --entry-content-code-color: var(--dads-gray-900);
   --entry-content-code-background: var(--dads-gray-50);
@@ -176,7 +182,6 @@
     --header-link-hover-color: var(--dads-light-blue-300);
     --header-active-link-color: var(--dads-light-blue-300);
 
-    --page-header-title-color: var(--dads-white);
     --page-header-title-border-color: var(--dads-gray-700);
     --logo-color: var(--dads-white);
     --logo-hover-color-span: var(--dads-light-blue-300);
@@ -234,6 +239,10 @@
     --item-meta-li-color: var(--dads-gray-300);
     --current-item-border-color: var(--dads-light-blue-300);
     --current-item-box-shadow: none;
+
+    --modal-background: var(--dads-gray-800);
+    --modal-color: var(--dads-gray-50);
+    --modal-box-shadow: none;
 
     --entry-header-border-color: var(--dads-gray-700);
     --entry-header-title-link-color: var(--dads-white);
@@ -325,6 +334,21 @@ select,
 textarea {
   border-radius: var(--dads-radius-8);
   min-height: 2.75rem;
+}
+
+/* 狭い画面で入力欄・ボタンが横にはみ出さないようにする */
+input,
+select,
+textarea,
+button,
+.button {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+button,
+.button {
+  white-space: normal;
 }
 
 /* ---- 記事一覧・パネル ---- */

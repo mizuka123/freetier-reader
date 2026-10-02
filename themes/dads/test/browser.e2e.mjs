@@ -94,8 +94,15 @@ try {
   const mobilePage = await mobile.newPage();
   for (const path of ['/unread', '/feeds', '/settings']) {
     await mobilePage.goto(`${base}${path}`);
-    const overflow = await mobilePage.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    check(`mobile 360px: no horizontal overflow on ${path}`, () => assert.ok(overflow <= 0, `${overflow}px`));
+    const { overflow, culprits } = await mobilePage.evaluate(() => {
+      const width = window.innerWidth;
+      const wide = [...document.querySelectorAll('body *')]
+        .filter((el) => el.getBoundingClientRect().right > width + 0.5)
+        .slice(0, 5)
+        .map((el) => `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${el.className && typeof el.className === 'string' ? `.${el.className.trim().split(/\s+/).join('.')}` : ''} (right=${Math.round(el.getBoundingClientRect().right)})`);
+      return { overflow: document.documentElement.scrollWidth - width, culprits: wide };
+    });
+    check(`mobile 360px: no horizontal overflow on ${path}`, () => assert.ok(overflow <= 0, `${overflow}px: ${culprits.join(', ')}`));
   }
 } finally {
   await browser.close();
