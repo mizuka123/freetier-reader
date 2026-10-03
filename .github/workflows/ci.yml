@@ -157,30 +157,39 @@ jobs:
           cat_id="$(api "$b/categories" | json 'd[0]["id"]')"
           feed=http://x-webhook-rss:8080/feeds/x/ci_user.xml
 
-          echo "--- direct fetch of an internal feed is refused"
-          code="$(api -o /tmp/direct.json -w '%{http_code}' -X POST "$b/feeds" \
-            --data "{\"feed_url\":\"$feed\",\"category_id\":$cat_id}")"
+          echo "--- direct fetch of an internal feed is refused by Miniflux"
+          code="$(api -o /tmp/direct.json -w '%{http_code}' -X POST "$b/feeds"             --data "{\"feed_url\":\"$feed\",\"category_id\":$cat_id}")"
           cat /tmp/direct.json; echo
           test "$code" -ge 400
+          grep -q 'refusing to access private network host' /tmp/direct.json
 
           echo "--- the same feed works through the fetch proxy"
-          id="$(api --fail-with-body -X POST "$b/feeds" \
-            --data "{\"feed_url\":\"$feed\",\"category_id\":$cat_id,\"fetch_via_proxy\":true}" | json 'd["feed_id"]')"
+          id="$(api --fail-with-body -X POST "$b/feeds"             --data "{\"feed_url\":\"$feed\",\"category_id\":$cat_id,\"fetch_via_proxy\":true}" | json 'd["feed_id"]')"
           api --fail-with-body "$b/feeds/$id" | json 'd["parsing_error_count"] == 0 and d["fetch_via_proxy"]' | grep -qx True
 
           echo "--- the fetch proxy only relays allowed hosts"
-          via() { docker compose exec -T -e http_proxy=http://fetch-proxy:8888 x-webhook-rss wget -qO- -T 10 "$1"; }
-          via http://x-webhook-rss:8080/healthz >/dev/null
-          if via http://postgres:5432/; then echo "expected the proxy to refuse postgres"; exit 1; fi
-          if via http://miniflux:8080/healthcheck; then echo "expected the proxy to refuse miniflux"; exit 1; fi
-          if via http://example.com/; then echo "expected the proxy to refuse external hosts"; exit 1; fi
+          # wget -S は応答ヘッダを stderr に出す。拒否は tinyproxy の「403 Filtered」で確認する（タイムアウト等では通らない）
+          via() { docker compose exec -T -e http_proxy=http://fetch-proxy:8888 x-webhook-rss wget -S -qO- -T 10 "$1" 2>&1; }
+          via http://x-webhook-rss:8080/feeds/x/ci_user.xml | grep -q '<feed'
+          for url in http://miniflux:8080/healthcheck http://postgres:5432/ http://example.com/ \
+                     http://x-webhook-rss:8080/healthz http://x-webhook-rss:8080/status http://x-webhook-rss:9999/feeds/x/a.xml \
+                     http://rss-bridge:8080/ http://x-webhook-rss.example.com:8080/feeds/x/a.xml; do
+            out="$(via "$url" || true)"
+            echo "$url -> $(echo "$out" | head -1)"
+            echo "$out" | grep -q '403 Filtered' || { echo "expected the proxy to refuse $url"; exit 1; }
+          done
 
           echo "--- internal-feeds.sh switches an internal feed back to the proxy"
           api --fail-with-body -X PUT "$b/feeds/$id" --data '{"fetch_via_proxy":false}' >/dev/null
-          bash scripts/internal-feeds.sh | tee /tmp/internal.log
-          grep -q 'for 1 feed(s)' /tmp/internal.log
+          ./scripts/internal-feeds.sh | tee /tmp/internal.log   # update.sh と同じく直接実行（実行権限の確認を兼ねる）
+          grep -q 'switched 1 feed(s)' /tmp/internal.log
           api --fail-with-body "$b/feeds/$id" | json 'd["fetch_via_proxy"]' | grep -qx True
-          bash scripts/internal-feeds.sh | grep -q 'for 0 feed(s)'   # 冪等
+          test ! -e .state/internal-feeds.failed
+          ./scripts/internal-feeds.sh | grep -q 'switched 0 feed(s)'   # 冪等
+
+          echo "--- a failure leaves a marker for monitor.sh"
+          if MINIFLUX_LOCAL_PORT=1 ./scripts/internal-feeds.sh; then echo "expected internal-feeds.sh to fail"; exit 1; fi
+          test -s .state/internal-feeds.failed
       - if: failure()
         run: |
           docker compose ps -a

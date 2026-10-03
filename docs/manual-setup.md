@@ -44,8 +44,11 @@ docker compose ps
 Cloudflare を使わない場合は `COMPOSE_PROFILES` から `cloudflare` を外し、
 前段に HTTPS 終端するリバースプロキシ（Caddy など）を置いてください。
 
-> Miniflux はコンテナ内部のフィード（rss-bridge / x-webhook-rss）を取得するため `FETCHER_ALLOW_PRIVATE_NETWORKS=1` で動かしています。
-> クラウドの VM では、コンテナからメタデータサーバ（169.254.169.254）や内部ネットワークへの通信をファイアウォールで遮断してください
+> Miniflux は内部ネットワークへの直接の接続を拒否する設定で動かしています。コンテナ内部のフィード（rss-bridge / x-webhook-rss など）は、
+> 許可したホストだけを中継する `fetch-proxy` を通して取得するため、購読時に「プロキシ経由で取得」を有効にしてください
+> （忘れても `scripts/update.sh` / `scripts/internal-feeds.sh` が自動で切り替えます。[sources.md](sources.md)）。
+> ただし Miniflux にログインできる利用者は、フィードごとの「プロキシ URL」に内部のアドレスを指定してこの制限を回避できます（Miniflux の仕様）。
+> そのため、クラウドの VM ではコンテナからメタデータサーバ（169.254.169.254）や内部ネットワークへの通信もファイアウォールで遮断してください
 > （Terraform 構築では `infra/terraform/templates/cloud-init.yaml.tftpl` の egress guard が自動設定します）。
 
 ## 4. cron

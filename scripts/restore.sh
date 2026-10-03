@@ -150,5 +150,8 @@ if $restore_x; then
   x_run "find /data -maxdepth 1 -name 'x-webhook-rss.db.before-restore-*' ! -name '$(basename "$x_old")' -delete" || true
 fi
 
+# 復元したデータの内部フィードを fetch-proxy 経由にする（古いバックアップでは未設定のため）
+./scripts/internal-feeds.sh || echo "warning: internal feeds were not switched to the fetch proxy (monitor.sh will report it)" >&2
+
 echo "restore completed"
 echo "以前のデータは ${old_db}（PostgreSQL）として残っています（確認後に削除: docs/operations.md）"

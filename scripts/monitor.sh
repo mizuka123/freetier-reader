@@ -4,6 +4,7 @@
 # - 有効なプロファイルの全サービスが存在し running / healthy か（starting が 10 分を超えたら異常）
 # - x-webhook-rss の /status（X_STALE_HOURS を超えて IFTTT から受信がなければ異常）
 # - 最新のローカルバックアップが 26 時間以内か
+# - テーマ・内部フィードのプロキシ設定が失敗していないか（apply-theme.sh / internal-feeds.sh の印）
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
@@ -15,6 +16,7 @@ problems=()
 
 [[ -e /var/lib/freetier-reader/bootstrap.failed ]] && problems+=("bootstrap: failed (see /var/log/freetier-reader-bootstrap.log)")
 [[ -e .state/theme.failed ]] && problems+=("theme: not applied ($(cat .state/theme.failed)); run scripts/apply-theme.sh")
+[[ -e .state/internal-feeds.failed ]] && problems+=("internal feeds: not switched to the fetch proxy ($(cat .state/internal-feeds.failed)); run scripts/internal-feeds.sh")
 
 if ! expected="$(docker compose config --services 2>&1)"; then
   problems+=("compose: config failed: ${expected}")
