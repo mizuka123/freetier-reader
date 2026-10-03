@@ -37,12 +37,10 @@ http://rss-bridge/?action=display&bridge=CssSelectorBridge&home_page=https%3A%2F
 docker compose exec miniflux wget -qO- "http://rss-bridge/?action=display&bridge=CssSelectorBridge&...&format=Atom" | head -50
 ```
 
-### Miniflux 側の補助設定（任意）
+### 本文が途中で切れる場合
 
-本文が途中で切れる場合は、Miniflux のフィード設定で次を設定します。
-
-- 「元のコンテンツを取得」（Fetch original content）: 有効
-- スクレイパールール: `p.preview__text`
+RSS-Bridge のフィードは内部のフィードのため、Miniflux の「元のコンテンツを取得」（全文取得）は使えません（外部の記事ページへの取得がプロキシで拒否されます）。
+代わりに、購読 URL の `content_selector` を本文全体を囲む要素（例: 記事本文のコンテナ）に変えて、RSS-Bridge 側で本文を取り出してください。
 
 ## 別のサイトを追加するとき
 
