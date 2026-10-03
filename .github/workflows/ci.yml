@@ -188,8 +188,14 @@ jobs:
           ./scripts/internal-feeds.sh | grep -q 'switched 0 feed(s)'   # 冪等
 
           echo "--- a failure leaves a marker for monitor.sh"
-          if MINIFLUX_LOCAL_PORT=1 ./scripts/internal-feeds.sh; then echo "expected internal-feeds.sh to fail"; exit 1; fi
+          # load_env が .env の値を使うため、.env の API キーを一時的に不正な値にして失敗させる
+          cp .env /tmp/env.ok
+          sed -i 's|^MINIFLUX_API_KEY=.*|MINIFLUX_API_KEY=invalid-token|' .env
+          if ./scripts/internal-feeds.sh; then echo "expected internal-feeds.sh to fail"; exit 1; fi
           test -s .state/internal-feeds.failed
+          cp /tmp/env.ok .env
+          ./scripts/internal-feeds.sh | grep -q 'switched 0 feed(s)'
+          test ! -e .state/internal-feeds.failed   # 成功すると印は消える
       - if: failure()
         run: |
           docker compose ps -a
