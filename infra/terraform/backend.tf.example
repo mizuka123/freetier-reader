@@ -1,18 +1,23 @@
 # state を OCI Object Storage（S3 互換 API）に置く場合の例。手順は docs/terraform.md「state の退避」。
-# backend.tf にコピーして使う（backend.tf は gitignore 済み）。認証は Customer Secret Key を
-# ~/.aws/credentials のプロファイル（profile）か AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY で渡す。
+# backend.tf にコピーして使う（infra/terraform/backend.tf は gitignore 済み）。
+# 認証は Customer Secret Key を ~/.aws/credentials のプロファイルで渡し、同じプロファイルの ~/.aws/config に
+# チェックサムの設定（docs 参照）を入れる。環境変数で渡す場合は AWS_REQUEST_CHECKSUM_CALCULATION=when_required と
+# AWS_RESPONSE_CHECKSUM_VALIDATION=when_required も必要。
+# <region> は ~/.aws/config の region、ここの region、endpoints のホスト名の 3 か所すべてをバケットのリージョンにそろえる。
 terraform {
   backend "s3" {
     bucket                      = "freetier-reader-tfstate"
     key                         = "terraform.tfstate"
-    region                      = "ap-tokyo-1"
-    # profile                   = "oci-tfstate"
-    endpoints                   = { s3 = "https://<namespace>.compat.objectstorage.ap-tokyo-1.oraclecloud.com" }
+    region                      = "<region>"
+    profile                     = "oci-tfstate"
+    endpoints                   = { s3 = "https://<namespace>.compat.objectstorage.<region>.oraclecloud.com" }
     skip_region_validation      = true
     skip_credentials_validation = true
     skip_requesting_account_id  = true
     skip_metadata_api_check     = true
     skip_s3_checksum            = true
     use_path_style              = true
+    # state のロック（同時に plan / apply すると後から始めた方が止まる）。Terraform 1.10 以上が必要
+    use_lockfile = true
   }
 }
