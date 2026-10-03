@@ -13,10 +13,14 @@
 **/.terraform/
 *.tfstate
 *.tfstate.*
+# infra/terraform/backend.tf.example をコピーした個人の backend 設定（テナンシの namespace を含む）
+infra/terraform/backend.tf
 *.tfvars
 !*.tfvars.example
 crash.log
 *.tfplan
+# terraform plan -out=tfplan の保存先（秘密値を平文で含む）
+tfplan
 
 # バックアップ・実行時の状態
 backups/

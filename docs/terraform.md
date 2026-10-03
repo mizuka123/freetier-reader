@@ -127,5 +127,46 @@ terraform apply -replace=module.oci.oci_core_instance.this
 ## 秘密情報の扱い
 
 - `terraform.tfvars` と state（`terraform.tfstate`）には秘密値が入ります。どちらも gitignore 済みです。**絶対にコミットしないでください。**
-- state を安全に共有・退避したい場合は `backend.tf.example` を参照（OCI Object Storage の S3 互換 API）。
+- state は手元の PC だけに置くと、PC の故障で失ったときに既存のリソースを Terraform で管理できなくなります。下の「state の退避」で OCI Object Storage に置くことを推奨します。
 - cloud-init（user_data）に `.env` を渡すため、OCI のインスタンスメタデータにも秘密値が入ります。テナンシの管理者以外に OCI コンソールの権限を与えないでください。
+
+### state の退避（OCI Object Storage）
+
+コマンドは bash の例です。Windows では `~/.aws/` は `%USERPROFILE%\.aws\`（例: `C:\Users\<you>\.aws\`）にあたります。
+
+1. state 専用のバケットを作る（例: `freetier-reader-tfstate`）。**公開なし・バージョン管理を有効**にする（上書き・通常の削除なら過去の版に戻せる）。保存データは OCI 側で暗号化される
+2. OCI コンソール → プロフィール → 「顧客秘密キー」（Customer Secret Key）を作成し、表示されたアクセスキーと秘密キーを `~/.aws/credentials` にプロファイルとして保存する
+   ```ini
+   [oci-tfstate]
+   aws_access_key_id = <アクセスキー>
+   aws_secret_access_key = <秘密キー>
+   ```
+   あわせて `~/.aws/config` に次を追加する（`<region>` はバケットのリージョン）。2026-10 時点で、これがないと state のアップロードが `NotImplemented: AWS chunked encoding not supported` で失敗した（Terraform 1.16.4、ap-osaka-1）
+   ```ini
+   [profile oci-tfstate]
+   region = <region>
+   request_checksum_calculation = when_required
+   response_checksum_validation = when_required
+   ```
+   - 顧客秘密キーは作成したユーザーの権限で動く。管理者ユーザーで作ると、漏れたときに state のバケット以外も操作される。2 つのファイルは自分だけが読めるようにし（Linux / macOS は `chmod 600`）、クラウド同期の対象から外す。漏れた疑いがあればコンソールでキーを削除して作り直す（期限切れはない）
+   - より安全にするには、state 専用のユーザーとグループ（例: `tfstate-writers`）を作ってそのユーザーで顧客秘密キーを作成し、次のポリシーで対象バケットだけに権限を絞る（`<compartment>` はバケットのコンパートメント。ルートなら `in tenancy`）
+     ```
+     Allow group tfstate-writers to read buckets in compartment <compartment> where target.bucket.name = 'freetier-reader-tfstate'
+     Allow group tfstate-writers to manage objects in compartment <compartment> where target.bucket.name = 'freetier-reader-tfstate'
+     ```
+3. `backend.tf.example` を `backend.tf` にコピーし、`<namespace>` と `<region>` を置き換える。`<region>` は `~/.aws/config` の `region`、`backend.tf` の `region`、`endpoints` のホスト名の 3 か所すべてをバケットのリージョンにそろえる（一部だけ違うと `SignatureDoesNotMatch` になる）。namespace はコンソールのテナンシ詳細（「オブジェクト・ストレージ・ネームスペース」）か、OCI CLI の `oci os ns get` で確認する
+4. 移行前の state をリポジトリの外にコピーしておき、`terraform init -migrate-state` で手元の state をバケットへ移す。作成直後の顧客秘密キーは使えるまで 10 分ほどかかることがあり、その間は成功と `SignatureDoesNotMatch` が混ざる（少し待って再実行）
+5. 移行できたことを確かめる
+   - `terraform plan` が `No changes` になる
+   - `terraform state list` のリソースが、移行前のコピーと同じ
+   - OCI コンソールのバケットに `terraform.tfstate` があり、バケットのバージョン管理が「有効」になっている
+6. 確かめられたら、リポジトリ内の `terraform.tfstate` と `terraform.tfstate.backup` を削除する（秘密値を含むため）。移行前のコピーは、別の PC で `terraform init` → `plan` が通るのを確認するまで残しておく
+
+state のロック（`use_lockfile`）を有効にしているため、同時に `plan` / `apply` すると後から始めた方が `Error acquiring the state lock` で止まる（Terraform 1.16.4 と OCI で確認）。作業が異常終了してロックが残った場合は、表示された ID で `terraform force-unlock <ID>` を実行する。
+
+state を壊した・消した場合は、次の手順で以前の版に戻す。バージョンを指定した削除やバケットの削除は元に戻せない。
+
+1. `terraform state pull > current.tfstate` で今の state を退避する（取れない場合は省略）
+2. OCI コンソールのバケット →「オブジェクト」→「オブジェクト・バージョンの表示」で、戻したい版の `terraform.tfstate` をダウンロードする
+3. 中身（リソースの一覧）を確認し、`terraform state push -force <ダウンロードしたファイル>` で戻す。古い版は serial が小さいため、`-force` を付けないと拒否される
+4. `terraform plan` で、実際のリソースとの差分を確認する。退避したファイルとダウンロードしたファイルは、秘密値を含むので終わったら削除する
