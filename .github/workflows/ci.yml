@@ -170,7 +170,9 @@ jobs:
           echo "--- the fetch proxy only relays allowed hosts"
           # wget -S は応答ヘッダを stderr に出す。拒否は tinyproxy の「403 Filtered」で確認する（タイムアウト等では通らない）
           via() { docker compose exec -T -e http_proxy=http://fetch-proxy:8888 x-webhook-rss wget -S -qO- -T 10 "$1" 2>&1; }
-          via http://x-webhook-rss:8080/feeds/x/ci_user.xml | grep -q '<feed'
+          # grep -q が途中で読むのをやめると前段が SIGPIPE で失敗するため、出力をいったん受けてから調べる
+          out="$(via http://x-webhook-rss:8080/feeds/x/ci_user.xml)"
+          grep -q '<feed' <<<"$out"
           for url in http://miniflux:8080/healthcheck http://postgres:5432/ http://example.com/ \
                      http://x-webhook-rss:8080/healthz http://x-webhook-rss:8080/status http://x-webhook-rss:9999/feeds/x/a.xml \
                      http://rss-bridge:8080/ http://x-webhook-rss.example.com:8080/feeds/x/a.xml; do
@@ -185,7 +187,7 @@ jobs:
           grep -q 'switched 1 feed(s)' /tmp/internal.log
           api --fail-with-body "$b/feeds/$id" | json 'd["fetch_via_proxy"]' | grep -qx True
           test ! -e .state/internal-feeds.failed
-          ./scripts/internal-feeds.sh | grep -q 'switched 0 feed(s)'   # 冪等
+          grep -q 'switched 0 feed(s)' <<<"$(./scripts/internal-feeds.sh)"   # 冪等
 
           echo "--- a failure leaves a marker for monitor.sh"
           # load_env が .env の値を使うため、.env の API キーを一時的に不正な値にして失敗させる
@@ -194,7 +196,7 @@ jobs:
           if ./scripts/internal-feeds.sh; then echo "expected internal-feeds.sh to fail"; exit 1; fi
           test -s .state/internal-feeds.failed
           cp /tmp/env.ok .env
-          ./scripts/internal-feeds.sh | grep -q 'switched 0 feed(s)'
+          grep -q 'switched 0 feed(s)' <<<"$(./scripts/internal-feeds.sh)"
           test ! -e .state/internal-feeds.failed   # 成功すると印は消える
       - if: failure()
         run: |
