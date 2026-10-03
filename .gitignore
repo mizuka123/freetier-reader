@@ -13,6 +13,8 @@
 **/.terraform/
 *.tfstate
 *.tfstate.*
+# backend.tf.example をコピーした個人の backend 設定（namespace などを含む）
+infra/terraform/backend.tf
 *.tfvars
 !*.tfvars.example
 crash.log

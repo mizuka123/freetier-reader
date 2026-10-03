@@ -1,11 +1,12 @@
-# state を OCI Object Storage（S3 互換 API）に置く場合の例。
-# 使う場合は backend.tf にリネームし、Customer Secret Key を AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY に設定して
-# `terraform init -migrate-state` を実行する。
+# state を OCI Object Storage（S3 互換 API）に置く場合の例。手順は docs/terraform.md「state の退避」。
+# backend.tf にコピーして使う（backend.tf は gitignore 済み）。認証は Customer Secret Key を
+# ~/.aws/credentials のプロファイル（profile）か AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY で渡す。
 terraform {
   backend "s3" {
     bucket                      = "freetier-reader-tfstate"
     key                         = "terraform.tfstate"
     region                      = "ap-tokyo-1"
+    # profile                   = "oci-tfstate"
     endpoints                   = { s3 = "https://<namespace>.compat.objectstorage.ap-tokyo-1.oraclecloud.com" }
     skip_region_validation      = true
     skip_credentials_validation = true

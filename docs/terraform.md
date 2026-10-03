@@ -127,5 +127,25 @@ terraform apply -replace=module.oci.oci_core_instance.this
 ## 秘密情報の扱い
 
 - `terraform.tfvars` と state（`terraform.tfstate`）には秘密値が入ります。どちらも gitignore 済みです。**絶対にコミットしないでください。**
-- state を安全に共有・退避したい場合は `backend.tf.example` を参照（OCI Object Storage の S3 互換 API）。
+- state は手元の PC だけに置くと、PC の故障で失ったときに既存のリソースを Terraform で管理できなくなります。下の「state の退避」で OCI Object Storage に置くことを推奨します。
 - cloud-init（user_data）に `.env` を渡すため、OCI のインスタンスメタデータにも秘密値が入ります。テナンシの管理者以外に OCI コンソールの権限を与えないでください。
+
+### state の退避（OCI Object Storage）
+
+1. state 専用のバケットを作る（例: `freetier-reader-tfstate`）。**公開なし・バージョン管理を有効**にする（誤って上書きしても過去の版に戻せる）。保存データは OCI 側で暗号化される
+2. OCI コンソール → プロフィール → 「顧客秘密キー」（Customer Secret Key）を作成し、表示されたアクセスキーと秘密キーを `~/.aws/credentials` にプロファイルとして保存する
+   ```ini
+   [oci-tfstate]
+   aws_access_key_id = <アクセスキー>
+   aws_secret_access_key = <秘密キー>
+   ```
+   あわせて `~/.aws/config` に次を追加する。OCI の S3 互換 API は AWS SDK 既定のチェックサム付き分割アップロードに対応しておらず、ないと `NotImplemented: AWS chunked encoding not supported` で失敗する
+   ```ini
+   [profile oci-tfstate]
+   region = ap-osaka-1
+   request_checksum_calculation = when_required
+   response_checksum_validation = when_required
+   ```
+3. `backend.tf.example` を `backend.tf` にコピーし、`region`・`endpoints`（`<namespace>` は `oci os ns get` かコンソールのテナンシ詳細で確認）・`profile = "oci-tfstate"` を設定する
+4. `terraform init -migrate-state` で手元の state をバケットへ移す。作成直後の顧客秘密キーは使えるまで 10 分ほどかかることがあり、その間は成功と `SignatureDoesNotMatch` が混ざる（少し待って再実行）
+5. `terraform plan` が `No changes` になることを確認したら、手元の `terraform.tfstate` と `terraform.tfstate.backup` を削除する（秘密値を含むため）
