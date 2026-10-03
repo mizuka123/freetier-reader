@@ -148,7 +148,12 @@ terraform apply -replace=module.oci.oci_core_instance.this
    request_checksum_calculation = when_required
    response_checksum_validation = when_required
    ```
-   - 顧客秘密キーは作成したユーザーの権限で動くため、state のバケット以外にもアクセスできる。2 つのファイルは自分だけが読めるようにし（Linux / macOS は `chmod 600`）、クラウド同期の対象から外す。漏れた疑いがあればコンソールでキーを削除して作り直す（期限切れはない）
+   - 顧客秘密キーは作成したユーザーの権限で動く。管理者ユーザーで作ると、漏れたときに state のバケット以外も操作される。2 つのファイルは自分だけが読めるようにし（Linux / macOS は `chmod 600`）、クラウド同期の対象から外す。漏れた疑いがあればコンソールでキーを削除して作り直す（期限切れはない）
+   - より安全にするには、state 専用のユーザーとグループ（例: `tfstate-writers`）を作ってそのユーザーで顧客秘密キーを作成し、次のポリシーで対象バケットだけに権限を絞る（`<compartment>` はバケットのコンパートメント。ルートなら `in tenancy`）
+     ```
+     Allow group tfstate-writers to read buckets in compartment <compartment> where target.bucket.name = 'freetier-reader-tfstate'
+     Allow group tfstate-writers to manage objects in compartment <compartment> where target.bucket.name = 'freetier-reader-tfstate'
+     ```
 3. `backend.tf.example` を `backend.tf` にコピーし、`<namespace>` と `<region>` を置き換える。`<region>` は `~/.aws/config` の `region`、`backend.tf` の `region`、`endpoints` のホスト名の 3 か所すべてをバケットのリージョンにそろえる（一部だけ違うと `SignatureDoesNotMatch` になる）。namespace はコンソールのテナンシ詳細（「オブジェクト・ストレージ・ネームスペース」）か、OCI CLI の `oci os ns get` で確認する
 4. 移行前の state をリポジトリの外にコピーしておき、`terraform init -migrate-state` で手元の state をバケットへ移す。作成直後の顧客秘密キーは使えるまで 10 分ほどかかることがあり、その間は成功と `SignatureDoesNotMatch` が混ざる（少し待って再実行）
 5. 移行できたことを確かめる
@@ -159,4 +164,9 @@ terraform apply -replace=module.oci.oci_core_instance.this
 
 state のロック（`use_lockfile`）を有効にしているため、同時に `plan` / `apply` すると後から始めた方が `Error acquiring the state lock` で止まる（Terraform 1.16.4 と OCI で確認）。作業が異常終了してロックが残った場合は、表示された ID で `terraform force-unlock <ID>` を実行する。
 
-state を壊した・消した場合は、OCI コンソールのバケット →「オブジェクト」→「オブジェクト・バージョンの表示」で以前の版をダウンロードし、`terraform state push` で戻す。バージョンを指定した削除やバケットの削除は元に戻せない。
+state を壊した・消した場合は、次の手順で以前の版に戻す。バージョンを指定した削除やバケットの削除は元に戻せない。
+
+1. `terraform state pull > current.tfstate` で今の state を退避する（取れない場合は省略）
+2. OCI コンソールのバケット →「オブジェクト」→「オブジェクト・バージョンの表示」で、戻したい版の `terraform.tfstate` をダウンロードする
+3. 中身（リソースの一覧）を確認し、`terraform state push -force <ダウンロードしたファイル>` で戻す。古い版は serial が小さいため、`-force` を付けないと拒否される
+4. `terraform plan` で、実際のリソースとの差分を確認する。退避したファイルとダウンロードしたファイルは、秘密値を含むので終わったら削除する
