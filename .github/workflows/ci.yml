@@ -249,8 +249,19 @@ jobs:
           test "$code" -eq 2                      # CLOUDFLARE_TUNNEL_TOKEN が未設定
           grep -qE '^X_WEBHOOK_TOKEN=[A-Za-z0-9]{48}$' .env
           grep -qE '^POSTGRES_PASSWORD=[A-Za-z0-9]{32}$' .env
+          grep -qE '^MEDIA_PROXY_PRIVATE_KEY=[A-Za-z0-9]{48}$' .env
           sed -i 's/^CLOUDFLARE_TUNNEL_TOKEN=CHANGE_ME$/CLOUDFLARE_TUNNEL_TOKEN=dummy/' .env
           bash scripts/init.sh
+          # 既存の .env に後から追加された秘密値の行がない場合は追記し、既存値は変えない
+          sed -i '/^MEDIA_PROXY_PRIVATE_KEY=/d' .env
+          pw="$(grep '^POSTGRES_PASSWORD=' .env)"
+          bash scripts/init.sh
+          grep -qE '^MEDIA_PROXY_PRIVATE_KEY=[A-Za-z0-9]{48}$' .env
+          test "$(grep -c '^MEDIA_PROXY_PRIVATE_KEY=' .env)" -eq 1
+          key="$(grep '^MEDIA_PROXY_PRIVATE_KEY=' .env)"
+          bash scripts/init.sh
+          test "$(grep '^MEDIA_PROXY_PRIVATE_KEY=' .env)" = "$key"
+          test "$(grep '^POSTGRES_PASSWORD=' .env)" = "$pw"
 
   compose-validate:
     runs-on: ubuntu-latest

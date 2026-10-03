@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # .env.example から .env を作成し、CHANGE_ME の秘密値をランダム生成する。
-# 既に .env がある場合は CHANGE_ME のまま残っている値だけを埋める（既存値は上書きしない）。
+# 既に .env がある場合は CHANGE_ME のまま残っている値と、行のない秘密値だけを埋める（既存値は上書きしない）。
 # 手で設定すべき値が CHANGE_ME のまま残っていれば終了コード 2 を返す。
 set -euo pipefail
 
@@ -31,12 +31,20 @@ fill() {
     sed -i.bak "s|^${key}=CHANGE_ME$|${key}=${value}|" .env
     rm -f .env.bak
     echo "generated ${key}"
+  elif ! grep -qE "^${key}=" .env; then
+    # 後から追加された秘密値（既存の .env にはまだ行がない）
+    value="$(gen "$len")"
+    printf '
+%s=%s
+' "$key" "$value" >> .env
+    echo "added ${key}"
   fi
 }
 
 fill ADMIN_PASSWORD 24
 fill POSTGRES_PASSWORD 32
 fill X_WEBHOOK_TOKEN 48
+fill MEDIA_PROXY_PRIVATE_KEY 48
 
 if grep -q '=CHANGE_ME$' .env; then
   echo

@@ -54,6 +54,10 @@ services:
       CLEANUP_ARCHIVE_READ_DAYS: "90"
       # ログインセッションを長く保持し、再ログインを減らす
       CLEANUP_REMOVE_SESSIONS_DAYS: "180"
+      # 記事中の画像を Miniflux 経由で配信する（閲覧者の IP を元サイトに渡さない）。http-only で従来どおり
+      MEDIA_PROXY_MODE: ${MINIFLUX_MEDIA_PROXY_MODE:-all}
+      # 画像 URL の署名鍵。未設定だと起動のたびに変わり、アプリに保存済みの記事の画像が表示できなくなる
+      MEDIA_PROXY_PRIVATE_KEY: ${MEDIA_PROXY_PRIVATE_KEY:-}
     ports:
       # VM のローカルホストのみ。外部公開は cloudflared 経由
       - "127.0.0.1:${MINIFLUX_LOCAL_PORT:-8080}:8080"

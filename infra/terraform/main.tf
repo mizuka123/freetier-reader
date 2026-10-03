@@ -15,6 +15,7 @@ locals {
     postgres_password    = random_password.postgres.result
     tunnel_token         = module.cloudflare.tunnel_token
     webhook_token        = random_password.webhook_token.result
+    media_proxy_key      = random_password.media_proxy_key.result
     x_allowed_users      = join(",", var.x_allowed_users)
     x_stale_hours        = var.x_stale_hours
     x_webhook_rss_image  = var.x_webhook_rss_image
@@ -52,6 +53,12 @@ resource "random_password" "postgres" {
 }
 
 resource "random_password" "webhook_token" {
+  length  = 48
+  special = false
+}
+
+# Miniflux の画像プロキシ URL の署名鍵（固定しないと再起動のたびに画像 URL が変わる）
+resource "random_password" "media_proxy_key" {
   length  = 48
   special = false
 }
