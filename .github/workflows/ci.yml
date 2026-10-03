@@ -211,16 +211,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: docker build -t x-webhook-rss:ci services/x-webhook-rss
+      - run: docker build -t fetch-proxy:ci services/fetch-proxy
       - name: Smoke test
         run: |
-          docker run -d --name xw -p 18080:8080 \
+          docker network create ftr
+          # compose と同じサービス名で起動し、fetch-proxy から名前で届くようにする
+          docker run -d --name x-webhook-rss --network ftr -p 18080:8080 \
             -e X_WEBHOOK_TOKEN="$(openssl rand -hex 32)" -e DB_PATH=/data/x.db x-webhook-rss:ci
+          docker run -d --name fetch-proxy --network ftr -p 18888:8888 fetch-proxy:ci
+          docker run --rm --entrypoint tinyproxy fetch-proxy:ci -v
           for i in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:18080/healthz && exit 0
+            curl -fsS -o /dev/null http://127.0.0.1:18080/healthz && break
             sleep 1
           done
-          docker logs xw
-          exit 1
+          curl -fsS http://127.0.0.1:18080/healthz
+          proxied() { curl -sS -o /dev/null -w '%{http_code}' -x http://127.0.0.1:18888 "$1"; }
+          test "$(proxied http://x-webhook-rss:8080/feeds/x/ci.xml)" = 200
+          test "$(proxied http://x-webhook-rss:8080/healthz)" = 403
+          test "$(proxied http://example.com/)" = 403
+      - if: failure()
+        run: docker logs x-webhook-rss; docker logs fetch-proxy
 
   shell:
     runs-on: ubuntu-latest

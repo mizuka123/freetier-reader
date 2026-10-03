@@ -21,6 +21,7 @@ http://rss-bridge/?action=display&bridge=CssSelectorBridge&home_page=https%3A%2F
 ```
 
 **購読するときは「詳細オプション」の「プロキシ経由で取得」（Fetch via proxy）を有効にしてください。** Miniflux は内部ネットワークへの直接の接続を拒否する設定になっており、`rss-bridge` などの内部のフィードは、許可したホストだけを中継する `fetch-proxy` を通して取得します。有効にし忘れた場合も、`scripts/update.sh`（または `scripts/internal-feeds.sh`）が内部のフィードを自動でプロキシ経由に切り替えます。
+内部のフィードでは「オリジナルの内容を取得」（全文取得）を有効にしないでください。全文取得も同じプロキシを通るため、外部の記事ページは拒否されて取得できません。本文は `content_selector` で取り出します。
 
 | パラメータ | 値 | 意味 |
 |---|---|---|

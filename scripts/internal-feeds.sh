@@ -31,8 +31,8 @@ api() {
 }
 
 feeds="$(api "${base_url}/v1/feeds")" || fail "Miniflux API に接続できません: ${feeds:-}"
-ids="$(FEEDS="$feeds" python3 - services/fetch-proxy/allowed-urls <<'PY'
-import json, os, re, sys
+ids="$(python3 - services/fetch-proxy/allowed-urls <(printf '%s' "$feeds") <<'PY'
+import json, re, sys
 from urllib.parse import urlsplit
 
 # 「^http://<host>(:port)?/...」の形の行からホスト名を取り出す
@@ -42,7 +42,7 @@ for line in open(sys.argv[1], encoding="utf-8"):
     if line.startswith("^http://"):
         hosts.add(re.split(r"[(:/]", line[len("^http://"):])[0].lower())
 
-for feed in json.loads(os.environ["FEEDS"]):
+for feed in json.load(open(sys.argv[2], encoding="utf-8")):
     host = (urlsplit(feed["feed_url"]).hostname or "").lower()
     if host in hosts and not feed.get("fetch_via_proxy"):
         print(feed["id"])
