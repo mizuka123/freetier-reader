@@ -146,7 +146,7 @@ resource "oci_core_volume_attachment" "data" {
 
 # ---- OCI Bastion（障害時の SSH 経路。無料） ----
 resource "oci_bastion_bastion" "this" {
-  bastion_type                 = "standard"
+  bastion_type                 = "STANDARD"
   compartment_id               = var.compartment_ocid
   target_subnet_id             = oci_core_subnet.this.id
   name                         = local.bastion_name
