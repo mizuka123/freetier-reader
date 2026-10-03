@@ -32,6 +32,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      fetch-proxy:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://miniflux:${POSTGRES_PASSWORD}@postgres/miniflux?sslmode=disable
       RUN_MIGRATIONS: "1"
@@ -39,9 +41,11 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?run scripts/init.sh}
       BASE_URL: https://${READER_HOSTNAME:?set READER_HOSTNAME}
-      # rss-bridge / x-webhook-rss など compose 内部のフィードを取得するために必要（既定では拒否される）。
-      # コンテナからインスタンスメタデータ・VCN への通信は cloud-init の egress guard で遮断している。
-      FETCHER_ALLOW_PRIVATE_NETWORKS: "1"
+      # 内部ネットワーク（compose の他サービス・VCN・メタデータ）への接続は Miniflux の既定どおり拒否する
+      # （FETCHER_ALLOW_PRIVATE_NETWORKS は設定しない）。rss-bridge / x-webhook-rss など compose 内部の
+      # フィードは「プロキシ経由で取得」を有効にし、許可したホストだけを中継する fetch-proxy を通す
+      # （明示的に設定したプロキシへの接続だけは Miniflux が許可する）。scripts/internal-feeds.sh が自動で設定する
+      HTTP_CLIENT_PROXY: http://fetch-proxy:8888
       # パスキー（WebAuthn）ログイン
       WEBAUTHN: "1"
       # 巡回間隔（分）
@@ -64,6 +68,13 @@ services:
     logging: *logging
     volumes:
       - ./config/rss-bridge:/config:ro
+
+  # compose 内部のフィード専用の転送プロキシ（services/fetch-proxy。許可したホストだけを中継）
+  fetch-proxy:
+    image: freetier-reader-fetch-proxy:local
+    build: ./services/fetch-proxy
+    restart: unless-stopped
+    logging: *logging
 
   x-webhook-rss:
     profiles: ["x"]

@@ -20,6 +20,8 @@ Miniflux に次の URL を購読として追加します（Docker 内部ネッ�
 http://rss-bridge/?action=display&bridge=CssSelectorBridge&home_page=https%3A%2F%2Fhochi.news%2F&url_selector=a%5Bhref%5E%3D%22%2Farticles%2F%22%5D&url_pattern=&content_selector=p.preview__text&content_cleanup=&title_cleanup=+-+%E3%82%B9%E3%83%9D%E3%83%BC%E3%83%84%E5%A0%B1%E7%9F%A5&limit=30&format=Atom
 ```
 
+**購読するときは「詳細オプション」の「プロキシ経由で取得」（Fetch via proxy）を有効にしてください。** Miniflux は内部ネットワークへの直接の接続を拒否する設定になっており、`rss-bridge` などの内部のフィードは、許可したホストだけを中継する `fetch-proxy` を通して取得します。有効にし忘れた場合も、`scripts/update.sh`（または `scripts/internal-feeds.sh`）が内部のフィードを自動でプロキシ経由に切り替えます。
+
 | パラメータ | 値 | 意味 |
 |---|---|---|
 | `home_page` | `https://hochi.news/` | 記事リンクを集めるページ |

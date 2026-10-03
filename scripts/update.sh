@@ -76,8 +76,12 @@ trap - ERR
 docker image prune -f >/dev/null || true
 # テーマの CSS が更新されている可能性があるため再適用。失敗しても更新自体は成功扱いとし、
 # apply-theme.sh が作る .state/theme.failed を monitor.sh が通知する
-if ./scripts/apply-theme.sh; then
+warnings=()
+./scripts/apply-theme.sh || warnings+=("theme was not applied (monitor.sh will report it)")
+# compose 内部のフィードを fetch-proxy 経由にする（Miniflux は内部ネットワークへの直接接続を拒否するため）
+./scripts/internal-feeds.sh || warnings+=("internal feeds were not switched to the fetch proxy; run scripts/internal-feeds.sh")
+if ((${#warnings[@]} == 0)); then
   echo "update completed"
 else
-  echo "update completed with warnings: theme was not applied (monitor.sh will report it)" >&2
+  printf 'update completed with warnings: %s\n' "${warnings[@]}" >&2
 fi

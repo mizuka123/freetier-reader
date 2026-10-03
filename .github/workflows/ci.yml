@@ -133,6 +133,59 @@ jobs:
           docker compose ps -a
           docker compose logs postgres miniflux
 
+  fetch-proxy-e2e:
+    # 内部のフィードは fetch-proxy 経由でだけ取得でき、直接接続や許可していないホストは拒否されること
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare .env (Miniflux + PostgreSQL + x-webhook-rss)
+        run: |
+          cp .env.example .env
+          sed -i -e 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=x/' \
+                 -e 's/^READER_HOSTNAME=.*/READER_HOSTNAME=localhost/' \
+                 -e 's/^CLOUDFLARE_TUNNEL_TOKEN=CHANGE_ME$/CLOUDFLARE_TUNNEL_TOKEN=unused/' .env
+          bash scripts/init.sh
+      - run: docker compose up -d --build --wait postgres fetch-proxy miniflux x-webhook-rss
+      - name: Verify internal feeds and the fetch proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a; source .env; set +a
+          b=http://127.0.0.1:8080/v1
+          api() { curl -sS -u "${ADMIN_USERNAME}:${ADMIN_PASSWORD}" -H 'Content-Type: application/json' "$@"; }
+          json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
+          cat_id="$(api "$b/categories" | json 'd[0]["id"]')"
+          feed=http://x-webhook-rss:8080/feeds/x/ci_user.xml
+
+          echo "--- direct fetch of an internal feed is refused"
+          code="$(api -o /tmp/direct.json -w '%{http_code}' -X POST "$b/feeds" \
+            --data "{\"feed_url\":\"$feed\",\"category_id\":$cat_id}")"
+          cat /tmp/direct.json; echo
+          test "$code" -ge 400
+
+          echo "--- the same feed works through the fetch proxy"
+          id="$(api --fail-with-body -X POST "$b/feeds" \
+            --data "{\"feed_url\":\"$feed\",\"category_id\":$cat_id,\"fetch_via_proxy\":true}" | json 'd["feed_id"]')"
+          api --fail-with-body "$b/feeds/$id" | json 'd["parsing_error_count"] == 0 and d["fetch_via_proxy"]' | grep -qx True
+
+          echo "--- the fetch proxy only relays allowed hosts"
+          via() { docker compose exec -T -e http_proxy=http://fetch-proxy:8888 x-webhook-rss wget -qO- -T 10 "$1"; }
+          via http://x-webhook-rss:8080/healthz >/dev/null
+          if via http://postgres:5432/; then echo "expected the proxy to refuse postgres"; exit 1; fi
+          if via http://miniflux:8080/healthcheck; then echo "expected the proxy to refuse miniflux"; exit 1; fi
+          if via http://example.com/; then echo "expected the proxy to refuse external hosts"; exit 1; fi
+
+          echo "--- internal-feeds.sh switches an internal feed back to the proxy"
+          api --fail-with-body -X PUT "$b/feeds/$id" --data '{"fetch_via_proxy":false}' >/dev/null
+          bash scripts/internal-feeds.sh | tee /tmp/internal.log
+          grep -q 'for 1 feed(s)' /tmp/internal.log
+          api --fail-with-body "$b/feeds/$id" | json 'd["fetch_via_proxy"]' | grep -qx True
+          bash scripts/internal-feeds.sh | grep -q 'for 0 feed(s)'   # 冪等
+      - if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs postgres fetch-proxy miniflux x-webhook-rss
+
   service-image:
     # PR でも Dockerfile を amd64 / arm64（OCI A1）の両方でビルドし、起動して /healthz を確認する
     strategy:

@@ -1,0 +1,15 @@
+# Miniflux が compose 内部のフィード（rss-bridge など）を取得するための中継。
+# Miniflux は FETCHER_ALLOW_PRIVATE_NETWORKS なしでも「明示的に設定したプロキシ」への接続だけは許可するため、
+# 内部のフィードはこのプロキシ経由で取得し、それ以外（画像の中継・全文取得を含む）では内部ネットワークへの接続を拒否させる。
+FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
+
+RUN apk add --no-cache tinyproxy
+COPY tinyproxy.conf allowed-hosts /etc/tinyproxy/
+
+USER nobody
+EXPOSE 8888
+
+HEALTHCHECK --interval=60s --timeout=5s --retries=3 \
+  CMD nc -z 127.0.0.1 8888 || exit 1
+
+CMD ["tinyproxy", "-d", "-c", "/etc/tinyproxy/tinyproxy.conf"]
