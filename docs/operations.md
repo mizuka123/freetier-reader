@@ -166,7 +166,7 @@ Terraform 側の他の値を VM に反映する方法は [terraform.md の「設
 | 6 | `curl -i -X POST https://<host>/hook/x/wrong-token` | `404`（x-webhook-rss の応答） |
 | 7 | 日本国外の IP（VPN 等）から `/v1/me` | Cloudflare のブロック画面 |
 | 8 | IFTTT アプレットを実行（対象アカウントでテスト投稿、または過去投稿で手動実行） | `docker compose logs x-webhook-rss` にエラーがなく、フィードに本文が**記号の欠落なく**表示される（`&` `=` `+` 改行を含む投稿で確認） |
-| 9 | Miniflux に rss-bridge（報知）と x-webhook-rss のフィードを追加 | 取得エラーにならない |
+| 9 | Miniflux に rss-bridge（自分で決めたサイト）と x-webhook-rss（`X_ALLOWED_USERS` のアカウント）のフィードを追加 | 取得エラーにならない |
 | 10 | `sudo ./scripts/backup.sh` → `sudo ./scripts/restore.sh <archive>` | `offsite backup:` が表示される（rclone のインスタンスプリンシパル認証が動く）。復元後も記事・スターが残る |
 | 10b | ブラウザで Miniflux を開く（ライト/ダーク両方、Tab キーでの移動） | テーマ（[theme.md](theme.md)）が表示され、フォーカス位置が黒枠 + 黄色で分かる。`.state/theme.failed` がない |
 | 11a | `sudo reboot` 後に `docker compose ps` | データボリュームがマウントされてから Docker が起動し、記事が残っている |
