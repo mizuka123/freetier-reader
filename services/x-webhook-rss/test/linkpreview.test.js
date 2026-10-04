@@ -42,6 +42,24 @@ test('findImageInHtml: og:image を優先し、相対 URL・実体参照・属�
   assert.equal(findImageInHtml('<meta property="og:title" content="x">', 'https://a.example/'), null);
 });
 
+test('findImageInHtml: 長すぎる値・内部向けの画像 URL は捨てる', () => {
+  const meta = (u) => `<meta property="og:image" content="${u}">`;
+  const base = 'https://a.example/';
+  assert.equal(findImageInHtml(meta(`https://cdn.example/${'a'.repeat(3000)}.jpg`), base), null);
+  for (const u of ['http://169.254.169.254/latest/meta-data/', 'http://127.0.0.1/x.png', 'http://[::ffff:7f00:1]/x.png',
+    'http://miniflux:8080/x.png', 'http://user:pw@cdn.example/x.png', 'https://cdn.example:8443/x.png', 'data:image/png;base64,AAAA']) {
+    assert.equal(findImageInHtml(meta(u), base), null, u);
+  }
+  assert.equal(findImageInHtml(meta('https://cdn.example:443/x.png'), base), 'https://cdn.example/x.png');
+});
+
+test('isBlockedAddress: URL で正規化された IPv4 射影 IPv6（16 進表記）も拒否する', () => {
+  for (const raw of ['http://[::ffff:127.0.0.1]/', 'http://[::ffff:169.254.169.254]/', 'http://2130706433/', 'http://0x7f.1/']) {
+    const host = new URL(raw).hostname.replace(/^\[|\]$/g, '');
+    assert.equal(isBlockedAddress(host), true, `${raw} -> ${host}`);
+  }
+});
+
 // ---- ローカルの HTTP サーバでの取得（テストではアドレスの検査を外し、テスト用のポートを許可する） ----
 let server;
 let base;

@@ -71,13 +71,29 @@ export function findImageInHtml(html, baseUrl) {
     }
   }
   const raw = IMAGE_KEYS.map((k) => values[k]).find(Boolean);
-  if (!raw) return null;
+  if (!raw || raw.length > MAX_IMAGE_URL_LENGTH) return null;
   try {
-    const url = new URL(raw, baseUrl);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+    return isAcceptableImageUrl(new URL(raw, baseUrl));
   } catch {
     return null;
   }
+}
+
+// 画像の URL はフィードに保存され、Miniflux が取得する。異常に長い値や内部向けの URL は捨てる
+const MAX_IMAGE_URL_LENGTH = 2048;
+
+/**
+ * @param {URL} url
+ * @returns {string | null} 受け入れる場合は URL 文字列
+ */
+function isAcceptableImageUrl(url) {
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  if (url.username || url.password) return null;
+  if (url.port && !['80', '443'].includes(url.port)) return null;
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  // IP を直接指定した内部アドレスや、ドットのないホスト名（compose のサービス名など）は使わない
+  if (isIP(host) ? isBlockedAddress(host) : !host.includes('.')) return null;
+  return url.href.length <= MAX_IMAGE_URL_LENGTH ? url.href : null;
 }
 
 /**
@@ -129,7 +145,8 @@ export function createLinkPreview({
       const req = client.get(url, {
         lookup: guardedLookup,
         signal,
-        headers: { 'user-agent': userAgent, accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.1' },
+        // 圧縮は展開しないため、非圧縮で返してもらう
+        headers: { 'user-agent': userAgent, accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.1', 'accept-encoding': 'identity' },
       }, (res) => {
         const status = res.statusCode ?? 0;
         const contentType = String(res.headers['content-type'] ?? '');
