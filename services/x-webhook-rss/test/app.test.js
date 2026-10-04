@@ -23,12 +23,12 @@ function config(overrides = {}) {
   };
 }
 
-async function start(cfg = config()) {
+async function start(cfg = config(), deps = {}) {
   clock = new Date('2026-10-02T00:00:00Z');
   db = openDb(':memory:', () => clock);
   logs = [];
   const log = { warn: (...a) => logs.push(['warn', a.join(' ')]), error: (...a) => logs.push(['error', a.join(' ')]) };
-  server = createServer(createApp({ db, config: cfg, now: () => clock, log }));
+  server = createServer(createApp({ db, config: cfg, now: () => clock, log, ...deps }));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 }
@@ -348,4 +348,22 @@ test('status: staleHours=0 なら判定しない', async () => {
   await start(config({ staleHours: 0 }));
   clock = new Date('2027-01-01T00:00:00Z');
   assert.equal((await statusOf()).code, 200);
+});
+
+// ---- リンクカードの画像 ----
+
+test('新しい投稿を保存したときだけ onPostCreated を呼ぶ（重複では呼ばない）', async () => {
+  await stop();
+  let calls = 0;
+  await start(config(), { onPostCreated: () => { calls += 1; } });
+  assert.equal((await postForm(sample(1))).status, 201);
+  assert.equal((await postForm(sample(1))).status, 200);
+  assert.equal(calls, 1);
+});
+
+test('画像の取得結果がフィードの本文に入る', async () => {
+  assert.equal((await postForm(sample(1, { text: 'card https://t.co/abc' }))).status, 201);
+  const [pending] = db.pendingPreviews(10);
+  db.setPreview(pending.link, 'https://img.example/card.jpg?a=1&b=2');
+  assert.match(await feedXml(), /&lt;img src=&quot;https:\/\/img\.example\/card\.jpg\?a=1&amp;amp;b=2&quot;/);
 });

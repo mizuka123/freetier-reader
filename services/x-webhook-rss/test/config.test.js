@@ -45,3 +45,11 @@ test('数値は整数かつ範囲内のみ', () => {
 test('X_FEED_BASE_URL の末尾スラッシュを除去', () => {
   assert.equal(loadConfig(base({ X_FEED_BASE_URL: 'http://h:1/' })).publicBaseUrl, 'http://h:1');
 });
+
+test('X_LINK_PREVIEW は既定で有効、true / false / 1 / 0 を受け付け、それ以外はエラー', () => {
+  assert.equal(loadConfig(base({})).linkPreview, true);
+  assert.equal(loadConfig(base({ X_LINK_PREVIEW: 'false' })).linkPreview, false);
+  assert.equal(loadConfig(base({ X_LINK_PREVIEW: '0' })).linkPreview, false);
+  assert.equal(loadConfig(base({ X_LINK_PREVIEW: 'TRUE' })).linkPreview, true);
+  assert.throws(() => loadConfig(base({ X_LINK_PREVIEW: 'yes' })), /X_LINK_PREVIEW/);
+});
