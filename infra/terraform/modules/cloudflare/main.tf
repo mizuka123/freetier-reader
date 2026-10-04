@@ -14,7 +14,8 @@ locals {
   #   /v1/                    Miniflux API
   #   /reader/                Google Reader API
   #   /fever/                 Fever API
-  sync_api_prefixes = ["/v1/", "/reader/", "/fever/"]
+  #   /proxy/                 Miniflux 経由の画像（同期 API が返す本文の画像 URL。HMAC 署名付きで、鍵なしでは作れない）
+  sync_api_prefixes = ["/v1/", "/reader/", "/fever/", "/proxy/"]
   #   /accounts/ClientLogin   Google Reader API のログイン（完全一致）
   sync_api_exact = ["/accounts/ClientLogin"]
   #   /hook/x/                IFTTT Webhook（URL 内トークンで認証）

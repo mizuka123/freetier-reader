@@ -29,6 +29,8 @@ Miniflux 公式ドキュメント「Third-Party Applications」掲載アプリ�
 | Google Reader API | `https://reader.example.com`（アプリによっては `/reader/api/0`） | 連携画面で設定したユーザー名 / パスワード |
 | Fever API | `https://reader.example.com/fever/` | 連携画面で設定したユーザー名 / パスワード |
 
+同期 API が返す記事の画像は Miniflux 経由（`/proxy/`）の URL になるため、`/proxy/` も Access の対象外にしています（HMAC で署名された URL で、鍵がなければ作れません）。
+
 これらのパスは Cloudflare Access の対象外ですが、Cloudflare WAF でレート制限（既定: 同一 IP から 10 秒あたり 150 リクエスト）と国別制限（既定: 日本のみ）がかかっています。
 
 - 海外で使うときは `api_allowed_countries` を一時的に変更してください。

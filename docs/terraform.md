@@ -96,6 +96,8 @@ sudo install -m 600 /tmp/freetier-reader.env /opt/freetier-reader/.env && rm /tm
 cd /opt/freetier-reader && sudo docker compose up -d --wait
 ```
 
+後から追加された秘密値（例: 画像プロキシの署名鍵 `MEDIA_PROXY_PRIVATE_KEY`）は、`scripts/update.sh` が VM 上の `.env` に自動で追加します（`scripts/init.sh`）。その後に `env_file` を再同期すると Terraform 側の値に置き換わり、保存済みの記事の画像 URL が一度だけ無効になります。
+
 `auto_update` や cron の設定（cloud-init の内容）を変えた場合は、VM 上の `/etc/cron.d/freetier-reader` を直接編集するか、VM を作り直します（データボリュームは残ります）。
 **PostgreSQL のパスワードは `.env` だけ変えても DB に反映されません**（[operations.md](operations.md#秘密値設定を変更する)）。
 
