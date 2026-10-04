@@ -14,6 +14,12 @@ if [[ ! -f .env ]]; then
   echo "created .env from .env.example"
 fi
 
+# Windows で編集して改行が CRLF になった .env は、値の末尾に \r が付いて正しく読めないため止める
+if [[ -n "$(tr -dc '\r' < .env)" ]]; then
+  echo "error: .env の改行が CRLF です。LF に変換してください（例: sed -i 's/\r$//' .env）" >&2
+  exit 1
+fi
+
 gen() {
   local len="$1" value
   value="$(openssl rand -base64 96 | tr -dc 'A-Za-z0-9' | head -c "$len")"
@@ -26,17 +32,16 @@ gen() {
 
 fill() {
   local key="$1" len="$2" value
-  if grep -qE "^${key}=CHANGE_ME$" .env; then
+  if grep -qE "^${key}=(CHANGE_ME)?$" .env; then
+    # CHANGE_ME のまま、または値が空
     value="$(gen "$len")"
-    sed -i.bak "s|^${key}=CHANGE_ME$|${key}=${value}|" .env
+    sed -i.bak -E "s|^${key}=(CHANGE_ME)?$|${key}=${value}|" .env
     rm -f .env.bak
     echo "generated ${key}"
   elif ! grep -qE "^${key}=" .env; then
     # 後から追加された秘密値（既存の .env にはまだ行がない）
     value="$(gen "$len")"
-    printf '
-%s=%s
-' "$key" "$value" >> .env
+    printf '\n%s=%s\n' "$key" "$value" >> .env
     echo "added ${key}"
   fi
 }

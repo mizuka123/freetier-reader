@@ -196,6 +196,29 @@ jobs:
           if ./scripts/internal-feeds.sh; then echo "expected internal-feeds.sh to fail"; exit 1; fi
           test -s .state/internal-feeds.failed
           cp /tmp/env.ok .env
+          set -a; source .env; set +a
+
+          echo "--- the media proxy relays external images but refuses internal hosts"
+          docker compose exec -T miniflux printenv MEDIA_PROXY_MODE | grep -qx all
+          # Miniflux と同じ形式（/proxy/<HMAC-SHA256>/<URL>、base64url）で署名付き URL を作る
+          proxy_url() { python3 -c 'import base64,hashlib,hmac,sys; k,u=sys.argv[1].encode(),sys.argv[2].encode(); e=base64.urlsafe_b64encode; print("/proxy/%s/%s" % (e(hmac.new(k,u,hashlib.sha256).digest()).decode(), e(u).decode()))' "$MEDIA_PROXY_PRIVATE_KEY" "$1"; }
+          status() { curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$1"; }
+          since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          external="$(proxy_url https://github.githubassets.com/favicons/favicon.png)"
+          test "$(status "$external")" = 200
+          for internal in http://x-webhook-rss:8080/healthz http://fetch-proxy:8888/ http://169.254.169.254/; do
+            code="$(status "$(proxy_url "$internal")")"
+            echo "$internal -> $code"
+            test "$code" != 200
+          done
+          # この時点以降のログで、画像の中継が内部の宛先を拒否したことを確かめる（前段のフィード取得のログと区別する）
+          docker compose logs --since "$since" miniflux | grep -q 'refusing to access private network host'
+          # 署名が合わない URL は拒否される
+          test "$(status "/proxy/AAAA/$(printf '%s' https://github.githubassets.com/favicons/favicon.png | base64 -w0 | tr '+/' '-_')")" = 403
+
+          echo "--- proxied URLs survive a restart (the signing key is fixed)"
+          docker compose up -d --force-recreate --wait miniflux
+          test "$(status "$external")" = 200
           grep -q 'switched 0 feed(s)' <<<"$(./scripts/internal-feeds.sh)"
           test ! -e .state/internal-feeds.failed   # 成功すると印は消える
       - if: failure()
@@ -262,6 +285,24 @@ jobs:
           bash scripts/init.sh
           test "$(grep '^MEDIA_PROXY_PRIVATE_KEY=' .env)" = "$key"
           test "$(grep '^POSTGRES_PASSWORD=' .env)" = "$pw"
+          # 値が空の行は未設定として埋める
+          sed -i 's/^MEDIA_PROXY_PRIVATE_KEY=.*/MEDIA_PROXY_PRIVATE_KEY=/' .env
+          bash scripts/init.sh
+          grep -qE '^MEDIA_PROXY_PRIVATE_KEY=[A-Za-z0-9]{48}$' .env
+          # 末尾に改行のない .env に追記しても、前の行とつながらない
+          sed -i '/^MEDIA_PROXY_PRIVATE_KEY=/d' .env
+          before="$(grep -c '' .env)"; last="$(tail -n 1 .env)"
+          printf '%s' "$(cat .env)" > .env.tmp && mv .env.tmp .env
+          bash scripts/init.sh
+          grep -qxF "$last" .env
+          grep -qE '^MEDIA_PROXY_PRIVATE_KEY=[A-Za-z0-9]{48}$' .env
+          test "$(grep -c '^MEDIA_PROXY_PRIVATE_KEY=' .env)" -eq 1
+          test "$(tail -c 1 .env | od -An -c | tr -d ' ')" = '\n'
+          # CRLF の .env は壊さずに止める
+          cp .env .env.lf; sed -i 's/$/\r/' .env
+          set +e; bash scripts/init.sh; code=$?; set -e
+          test "$code" -eq 1
+          cp .env.lf .env
 
   compose-validate:
     runs-on: ubuntu-latest
@@ -305,6 +346,16 @@ jobs:
                       open(f"/tmp/{au}-" + f["path"].rsplit("/", 1)[1], "w").write(f["content"])
           PY
           shellcheck -S warning /tmp/true-*.sh /tmp/false-*.sh
+      - name: Render .env template and check the media proxy settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          vars='compose_profiles = "x", reader_hostname = "r.example.com", admin_username = "admin", admin_password = "a", postgres_password = "p", miniflux_theme = "dads", theme_web_font = false, tunnel_token = "t", webhook_token = "w", x_allowed_users = "", ifttt_tz_offset = "+09:00", x_stale_hours = 72, x_webhook_rss_image = "", backup_dir = "/b", backup_namespace = "n", backup_bucket = "bk", compartment_ocid = "c", region = "ap-osaka-1", healthcheck_ping_url = "", backup_ping_url = "", media_proxy_key = "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"'
+          echo "templatefile(\"templates/env.tftpl\", { $vars })" | terraform console | sed -e '1{/^<<EOT$/d}' -e '${/^EOT$/d}' > /tmp/env
+          grep -qx 'MINIFLUX_MEDIA_PROXY_MODE=all' /tmp/env
+          grep -qx 'MEDIA_PROXY_PRIVATE_KEY=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk' /tmp/env
+          # main.tf が鍵をテンプレートに渡していること
+          grep -q 'media_proxy_key *= random_password.media_proxy_key.result' main.tf
       - uses: terraform-linters/setup-tflint@v6
       - run: tflint --init && tflint --recursive
 

@@ -72,6 +72,10 @@ rollback() {
 }
 trap rollback ERR
 
+# 新しい版で追加された秘密値（例: MEDIA_PROXY_PRIVATE_KEY）を .env に補う（既存の値は変えない）。
+# 終了コード 2 は「手で設定すべき値が CHANGE_ME のまま」で、更新自体は続ける
+./scripts/init.sh || { rc=$?; [[ $rc -eq 2 ]] || rollback; echo "warning: .env に CHANGE_ME のままの値があります" >&2; }
+
 docker compose pull --ignore-buildable
 docker compose up -d --build --wait --remove-orphans
 trap - ERR

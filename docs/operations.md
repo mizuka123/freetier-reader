@@ -124,7 +124,7 @@ docker compose exec postgres psql -U miniflux -d postgres -c 'DROP DATABASE "min
 | Miniflux 管理者パスワード | Miniflux の設定画面から変更（`ADMIN_PASSWORD` は初回作成時のみ使われる） |
 | PostgreSQL パスワード | 下記（`.env` だけ変えると Miniflux が DB に接続できなくなる） |
 | Cloudflare Tunnel トークン | Cloudflare で再発行 → `.env` の `CLOUDFLARE_TUNNEL_TOKEN` を変更 → `docker compose up -d cloudflared` |
-| 画像プロキシの署名鍵 | `.env` の `MEDIA_PROXY_PRIVATE_KEY` を変更 → `docker compose up -d miniflux`。変えると、アプリに保存済みの記事の画像 URL は無効になる（Terraform で構築した場合は `-replace=random_password.media_proxy_key` で再生成して `env_file` を再同期） |
+| 画像プロキシの署名鍵 | 手動構築: `.env` の `MEDIA_PROXY_PRIVATE_KEY` を変更 → `docker compose up -d miniflux`。Terraform 構築: `terraform apply -replace=random_password.media_proxy_key` → `env_file` を VM に再同期（[terraform.md](terraform.md#設定を変更する)）→ `docker compose up -d miniflux`。変えると、アプリに保存済みの記事の画像 URL は無効になる |
 | 画像の配信方法 | `.env` の `MINIFLUX_MEDIA_PROXY_MODE`（既定 `all`: 記事中の画像をすべて Miniflux 経由で配信し、閲覧者の IP を元サイトに渡さない。`http-only` で Miniflux の既定に戻す）→ `docker compose up -d miniflux` |
 
 PostgreSQL パスワードの変更（**新しい値の管理元を 1 つに決める**）:
