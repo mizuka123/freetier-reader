@@ -6,8 +6,9 @@
 
 | パス | 内容 |
 |---|---|
-| `compose.yml` | 全コンテナの定義。オプション機能は Compose のプロファイル（`cloudflare` / `x` / `morss` / `rsshub` / `web`） |
+| `compose.yml` | 全コンテナの定義。オプション機能は Compose のプロファイル（`cloudflare` / `x` / `morss` / `rsshub` / `web` / `notion`） |
 | `services/x-webhook-rss/` | IFTTT Webhook → Atom の自作サービス（Node.js 24、ESM、外部依存なし。DB は `node:sqlite`） |
+| `services/star-to-notion/` | スター付きの記事を本文ごと Notion に保存する自作サービス（Node.js 24、ESM、外部依存なし。DB は `node:sqlite`。HTML → Notion ブロックの変換を含む） |
 | `services/fetch-proxy/` | Miniflux が compose 内部のフィードを取得するための転送プロキシ（tinyproxy。許可したホストだけを中継）。Miniflux 本体は内部ネットワークへの直接接続を拒否する設定 |
 | `themes/dads/` | Miniflux 用 CSS テーマとそのテスト |
 | `scripts/` | 初期化・バックアップ・リストア・更新・監視・テーマ適用（bash）。共通処理は `scripts/lib.sh` |
@@ -20,8 +21,9 @@
 変更した範囲に応じて、CI（`.github/workflows/ci.yml`）と同じ確認を手元で行います。
 
 ```bash
-# x-webhook-rss
+# x-webhook-rss / star-to-notion
 (cd services/x-webhook-rss && npm test)
+(cd services/star-to-notion && npm test)
 
 # テーマのコントラスト比
 node --test "themes/**/*.test.js"
@@ -46,7 +48,8 @@ docker compose --profile cloudflare --profile x --profile morss --profile rsshub
 - **データを失う可能性がある操作は、失敗時に元へ戻せるようにする。** backup / restore / update は `ops_lock` で排他し、失敗時のロールバックを持たせている。同じ方針を崩さない。
 - **PostgreSQL のメジャー更新はイメージのタグを変えるだけでは済まない。** データ移行が必要（[docs/operations.md](docs/operations.md)）。Dependabot の PR もそのままマージしない。
 - **Node.js のメジャー更新は LTS になってから**、`Dockerfile` と CI の `node-version` を揃えて行う。
-- **x-webhook-rss に npm の依存を追加しない**（Node 標準モジュールだけで書く）。
+- **services/ の自作サービス（x-webhook-rss / star-to-notion）に npm の依存を追加しない**（Node 標準モジュールだけで書く）。
+- **star-to-notion の SQLite のスキーマ変更は追加だけにする**（更新に失敗して古いコードに戻しても読めるように）。ログに記事の本文・秘密値・Miniflux の応答（feed の Cookie などを含む）を出さない。
 - **テーマの色を変えたら**、コントラストのテスト（WCAG 2.2 AA）を通す。デザイントークンの出典表記（`themes/dads/LICENSE-design-tokens`）を消さない。
 - **スクレイピング対象サイトの規約を尊重する。** X は IFTTT の公式連携のみを扱い、Cookie の流用など規約に反する方法は入れない。
 - 利用者に影響する変更（手順・環境変数・既定値）は、`docs/` と `.env.example` も同じ PR で更新する。
@@ -61,7 +64,7 @@ docker compose --profile cloudflare --profile x --profile morss --profile rsshub
 
 - `main` へ直接コミットしない。ブランチを切って PR を出す。
 - コミットメッセージは Conventional Commits（`feat:` / `fix(theme):` / `chore(deps):` / `docs:` / `test:` など）、英語で書く。
-- PR は CI がすべて通ってからマージする。x-webhook-rss のイメージは amd64 / arm64 の両方でビルド・起動を確認している（ビルド済みイメージは公開しない。既定はローカルビルド）。
+- PR は CI がすべて通ってからマージする。x-webhook-rss / star-to-notion のイメージは amd64 / arm64 の両方でビルド・起動を確認している（ビルド済みイメージは公開しない。既定はローカルビルド）。
 
 ## ローカル専用のメモ
 

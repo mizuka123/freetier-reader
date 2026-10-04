@@ -6,7 +6,7 @@ VM 上の cron が次を実行します（Terraform 構築の場合は自動設�
 
 | ジョブ | 間隔 | 内容 | 通知先 |
 |---|---|---|---|
-| `scripts/monitor.sh` | 10 分 | 構築スクリプトの失敗マーカー（`/var/lib/freetier-reader/bootstrap.failed`）、テーマ適用の失敗マーカー（`.state/theme.failed`）、有効なプロファイルの全サービスが存在し running / healthy か（starting が 10 分超は異常）、x-webhook-rss の `/status`（アカウントごとに `X_STALE_HOURS` 以内に受信しているか）、26 時間以内にローカル・オフサイトのバックアップが成功しているか、データ領域の使用率が 90% 未満か | `HEALTHCHECK_PING_URL` |
+| `scripts/monitor.sh` | 10 分 | 構築スクリプトの失敗マーカー（`/var/lib/freetier-reader/bootstrap.failed`）、テーマ適用の失敗マーカー（`.state/theme.failed`）、有効なプロファイルの全サービスが存在し running / healthy か（starting が 10 分超は異常）、x-webhook-rss の `/status`（アカウントごとに `X_STALE_HOURS` 以内に受信しているか）、star-to-notion の `/status`（Miniflux の確認・Notion への保存が止まっていないか、失敗した記事がないか。[notion.md](notion.md#監視)）、26 時間以内にローカル・オフサイトのバックアップが成功しているか、データ領域の使用率が 90% 未満か | `HEALTHCHECK_PING_URL` |
 | `scripts/backup.sh` | 毎日 03:30 JST | バックアップの開始・成功・失敗 | `BACKUP_PING_URL` |
 | cloud-init の構築スクリプト | 初回起動時 | 構築の成功・失敗（失敗時はログ末尾を送信） | `HEALTHCHECK_PING_URL` |
 
@@ -23,13 +23,14 @@ sudo tail -n 100 /var/log/freetier-reader-bootstrap.log   # 初回構築
 sudo tail -n 100 /var/log/freetier-reader-backup.log
 sudo tail -n 100 /var/log/freetier-reader-monitor.log
 docker compose logs --tail 100 x-webhook-rss             # 拒否された Webhook（理由付き）もここに出る
+docker compose logs --tail 100 star-to-notion            # Notion への保存（記事 ID と結果。本文は出さない）
 ```
 
 ## バックアップとリストア
 
 - **ローカル**: `${BACKUP_DIR}`（Terraform 構築では `/srv/freetier-reader/backups`、データボリューム上）に 7 世代
 - **オフサイト**: OCI Object Storage に `backup_retention_days`（既定 30 日）
-- 中身: Miniflux の PostgreSQL ダンプ（`pg_restore -l` で検証済み）と x-webhook-rss の SQLite
+- 中身: Miniflux の PostgreSQL ダンプ（`pg_restore -l` で検証済み）と、有効なプロファイルの SQLite（x-webhook-rss、star-to-notion）
 - オフサイトはアップロード後にサイズの一致を確認。バックアップ・リストア・更新は排他ロックで同時実行されない
 
 リストア:
@@ -39,13 +40,14 @@ cd /opt/freetier-reader
 # オフサイトから取得する場合（OCI コンソール or rclone でダウンロードして backups/ に置く）
 sudo ./scripts/restore.sh /srv/freetier-reader/backups/20261002T183000Z.tar.gz
 #   --yes     確認なしで実行
-#   --skip-x  Miniflux のみ復元（x-webhook-rss の DB を含まない古いアーカイブ用）
+#   --skip-x       x-webhook-rss の DB を復元しない（含まない古いアーカイブ用）
+#   --skip-notion  star-to-notion の DB を復元しない（含まない古いアーカイブ用）
 ```
 
 1. アーカイブの中身を検証（絶対パス・`..`・リンクなどを含むものは拒否）
-2. Miniflux と x-webhook-rss を停止
+2. Miniflux と、SQLite を持つサービス（x-webhook-rss / star-to-notion）を停止
 3. PostgreSQL は一時 DB `miniflux_restore` に、SQLite は一時ファイルに復元して検証（整合性チェック）
-4. 両方そろってから入れ替え。**元のデータは `miniflux_before_restore_<時刻>`（DB）と `x-webhook-rss.db.before-restore-<時刻>` として残す**
+4. すべてそろってから入れ替え。**元のデータは `miniflux_before_restore_<時刻>`（DB）と `<サービス名>.db.before-restore-<時刻>`（SQLite）として残す**
 5. 全サービスを起動し、ヘルスチェックを待つ
 6. 古い退避データを削除（最新 1 世代だけ残す）
 
@@ -83,7 +85,7 @@ docker compose exec postgres psql -U miniflux -d postgres -c 'DROP DATABASE "min
 | GitHub Actions | Dependabot が週 1 回、まとめて 1 つの PR にする。CI が通ればマージ |
 | コンテナイメージ（マイナー・パッチ） | Dependabot の PR を確認してマージ → `update.sh` |
 | Terraform プロバイダ | Dependabot の PR で CHANGELOG の破壊的変更を確認してからマージ |
-| Node.js のメジャー更新 | Dependabot の PR は**そのままマージしない**。新しいバージョンが LTS になってから、`services/x-webhook-rss/Dockerfile` と CI の `node-version` を揃えた PR で上げる |
+| Node.js のメジャー更新 | Dependabot の PR は**そのままマージしない**。新しいバージョンが LTS になってから、`services/x-webhook-rss/Dockerfile`・`services/star-to-notion/Dockerfile` と CI の `node-version` を揃えた PR で上げる |
 | PostgreSQL のメジャー更新 | Dependabot の PR は**そのままマージしない**（データ移行が必要）。下記の手順で移行する |
 
 メジャー更新の PR も通知としては受け取ります（セキュリティ修正が新しいメジャーにしか出ない場合に気づくため）。
@@ -121,6 +123,7 @@ docker compose exec postgres psql -U miniflux -d postgres -c 'DROP DATABASE "min
 | 変更したいもの | 手順 |
 |---|---|
 | Webhook トークン | `.env` の `X_WEBHOOK_TOKEN` を変更 → `docker compose up -d x-webhook-rss` → IFTTT アプレットの URL を更新 |
+| Notion のトークン・star-to-notion の API キー | [notion.md](notion.md#設定を変える止める) |
 | Miniflux 管理者パスワード | Miniflux の設定画面から変更（`ADMIN_PASSWORD` は初回作成時のみ使われる） |
 | PostgreSQL パスワード | 下記（`.env` だけ変えると Miniflux が DB に接続できなくなる） |
 | Cloudflare Tunnel トークン | Cloudflare で再発行 → `.env` の `CLOUDFLARE_TUNNEL_TOKEN` を変更 → `docker compose up -d cloudflared` |

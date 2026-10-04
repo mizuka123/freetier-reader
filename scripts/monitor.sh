@@ -3,6 +3,7 @@
 # - 構築スクリプト（cloud-init）が失敗していないか
 # - 有効なプロファイルの全サービスが存在し running / healthy か（starting が 10 分を超えたら異常）
 # - x-webhook-rss の /status（X_STALE_HOURS を超えて IFTTT から受信がなければ異常）
+# - star-to-notion の /status（Miniflux の確認・Notion への保存が止まっている、確認が必要な記事がある場合は異常）
 # - 最新のローカルバックアップが 26 時間以内か
 # - テーマ・内部フィードのプロキシ設定が失敗していないか（apply-theme.sh / internal-feeds.sh の印）
 set -uo pipefail
@@ -58,6 +59,20 @@ if profile_enabled x && grep -qx x-webhook-rss <<<"$expected"; then
     200\ *) ;;
     503\ *) problems+=("x-webhook-rss: no webhook from IFTTT within X_STALE_HOURS: ${status#503 }") ;;
     *) problems+=("x-webhook-rss: /status check failed: ${status}") ;;
+  esac
+fi
+
+if profile_enabled notion && grep -qx star-to-notion <<<"$expected"; then
+  # Miniflux を確認できていない・Notion への保存が止まっている・失敗した記事がある場合は 503（本文に理由）
+  status="$(docker compose exec -T star-to-notion node -e "
+    fetch('http://127.0.0.1:8080/status').then(async (r) => {
+      const body = await r.json().catch(() => ({}));
+      console.log(r.status, (body.problems ?? []).join('; '));
+    }).catch((e) => { console.log('ERR', e.message); });" 2>&1)" || status="ERR exec failed: ${status}"
+  case "$status" in
+    200\ *) ;;
+    503\ *) problems+=("star-to-notion: ${status#503 } (docker compose exec star-to-notion node src/cli.js status)") ;;
+    *) problems+=("star-to-notion: /status check failed: ${status}") ;;
   esac
 fi
 

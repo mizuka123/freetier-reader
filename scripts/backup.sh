@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PostgreSQL（Miniflux）と x-webhook-rss の SQLite をバックアップする。
+# PostgreSQL（Miniflux）と x-webhook-rss / star-to-notion の SQLite をバックアップする。
 # - ローカル: ${BACKUP_DIR:-backups}/ に 7 世代
 # - オフサイト: OCI_BACKUP_BUCKET があれば rclone（インスタンスプリンシパル認証）で OCI Object Storage へ
 # - BACKUP_PING_URL があれば開始/成功/失敗を通知（Healthchecks.io 等の死活監視）
@@ -22,9 +22,10 @@ sqlite_tmp="/data/backup-${stamp}.db"
 
 cleanup() {
   rm -rf "$work" "${archive}.partial"
-  if profile_enabled x; then
-    docker compose exec -T x-webhook-rss rm -f "$sqlite_tmp" >/dev/null 2>&1 || true
-  fi
+  local service
+  for service in x-webhook-rss star-to-notion; do
+    docker compose exec -T "$service" rm -f "$sqlite_tmp" >/dev/null 2>&1 || true
+  done
 }
 
 fail() {
@@ -43,18 +44,23 @@ docker compose exec -T postgres pg_dump -U miniflux -Fc miniflux > "${work}/mini
 # ダンプが壊れていないことを確認
 docker compose exec -T postgres pg_restore -l < "${work}/miniflux.dump" > /dev/null
 
-# ---- x-webhook-rss (SQLite) ----
-if profile_enabled x; then
-  if ! docker compose ps --status running --services | grep -qx x-webhook-rss; then
-    fail "x-webhook-rss is enabled but not running; SQLite backup is not possible"
+# ---- x-webhook-rss / star-to-notion (SQLite) ----
+# 稼働中のサービスの中で VACUUM INTO で一貫したコピーを作り、取り出す。$1: サービス名（DB は /data/<サービス名>.db）
+backup_sqlite() {
+  local service="$1"
+  if ! docker compose ps --status running --services | grep -qx "$service"; then
+    fail "${service} is enabled but not running; SQLite backup is not possible"
   fi
-  docker compose exec -T x-webhook-rss node -e "
+  docker compose exec -T "$service" node -e "
     const { DatabaseSync } = require('node:sqlite');
-    const db = new DatabaseSync('/data/x-webhook-rss.db');
+    const db = new DatabaseSync('/data/${service}.db');
     db.exec(\"VACUUM INTO '${sqlite_tmp}'\");
     db.close();"
-  docker compose cp "x-webhook-rss:${sqlite_tmp}" "${work}/x-webhook-rss.db"
-fi
+  docker compose cp "${service}:${sqlite_tmp}" "${work}/${service}.db"
+  docker compose exec -T "$service" rm -f "$sqlite_tmp"
+}
+profile_enabled x && backup_sqlite x-webhook-rss
+profile_enabled notion && backup_sqlite star-to-notion
 
 # 書き込み途中のファイルを正規のバックアップと誤認しないよう .partial から rename する
 tar -C "$work" -czf "${archive}.partial" .

@@ -118,6 +118,39 @@ services:
       miniflux:
         condition: service_healthy
 
+  # Miniflux でスターを付けた記事を、本文ごと Notion のデータベースに保存する（services/star-to-notion、docs/notion.md）。
+  # 受け付けるポートはない（Miniflux の API と api.notion.com へ接続するだけ）
+  star-to-notion:
+    profiles: ["notion"]
+    image: freetier-reader-star-to-notion:local
+    build: ./services/star-to-notion
+    restart: unless-stopped
+    logging: *logging
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      # 秘密値は .env に本人が設定する（未設定なら起動時にエラー）
+      NOTION_TOKEN: ${NOTION_TOKEN:-}
+      NOTION_DATABASE_ID: ${NOTION_DATABASE_ID:-}
+      STAR_MINIFLUX_API_KEY: ${STAR_MINIFLUX_API_KEY:-}
+      # 記事の画像の URL（Miniflux のメディアプロキシ経由）を元の URL に戻すのに使う
+      MINIFLUX_PUBLIC_URL: https://${READER_HOSTNAME:?set READER_HOSTNAME}
+      STAR_POLL_MINUTES: ${STAR_POLL_MINUTES:-5}
+      STAR_FETCH_FULL_CONTENT: ${STAR_FETCH_FULL_CONTENT:-true}
+      STAR_MIN_CONTENT_CHARS: ${STAR_MIN_CONTENT_CHARS:-500}
+      STAR_MAX_BLOCKS: ${STAR_MAX_BLOCKS:-1000}
+    volumes:
+      - notion-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"]
+      interval: 60s
+      start_period: 10s
+    depends_on:
+      miniflux:
+        condition: service_healthy
+
   # PC 向けの Web 画面（ReactFlux。MIT）。サイドメニュー + 一覧 + 本文の 3 ペインで、画面遷移なしに切り替えられる。
   # 静的ファイルを配信するだけで、記事の取得はブラウザから Miniflux の API（/v1/）へ直接行う（docs/web.md）
   reactflux:
@@ -149,3 +182,4 @@ services:
 volumes:
   pg-data:
   x-data:
+  notion-data:
