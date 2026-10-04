@@ -14,6 +14,11 @@ variable "hostname" {
   type = string
 }
 
+variable "web_hostname" {
+  description = "PC 向けの Web 画面（ReactFlux）のホスト名。空なら作らない"
+  type        = string
+}
+
 variable "tunnel_secret" {
   description = "32 バイト以上の base64 文字列"
   type        = string

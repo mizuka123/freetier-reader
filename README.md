@@ -25,6 +25,7 @@
    │                 ├─ rss-bridge（RSS のないサイト）                    │
    │                 ├─ x-webhook-rss（IFTTT → アカウント別 Atom、自作）   │
    │                 └─ morss / rsshub（任意）                           │
+   │ cloudflared → reactflux（PC 向け Web 画面、任意。API は miniflux へ）│
    └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -38,6 +39,7 @@
 | cloudflared | Cloudflare Tunnel | `cloudflare` |
 | morss | 全文取得の補助 | `morss` |
 | rsshub | RSSHub | `rsshub` |
+| reactflux | PC 向けの Web 画面（サイドメニュー付きの 3 ペイン。[docs/web.md](docs/web.md)） | `web` |
 
 ## 必要なもの・費用
 
@@ -88,6 +90,7 @@ docker compose up -d --build --wait
 | [docs/ifttt.md](docs/ifttt.md) | IFTTT で X の投稿を受け取る設定 |
 | [docs/sources.md](docs/sources.md) | RSS のないサイトのフィード化（例: スポーツ報知） |
 | [docs/apps.md](docs/apps.md) | Android / iPhone / iPad / ブラウザでの利用 |
+| [docs/web.md](docs/web.md) | PC 向けの Web 画面（ReactFlux。カテゴリ・フィードを画面遷移なしに切り替え） |
 | [docs/theme.md](docs/theme.md) | 画面テーマ（デジタル庁デザインシステムを参考にした非公式テーマ）の適用・カスタマイズ |
 | [docs/operations.md](docs/operations.md) | 監視・バックアップ/リストア・更新・秘密値の変更・初回確認チェックリスト |
 

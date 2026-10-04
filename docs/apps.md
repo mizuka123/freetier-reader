@@ -43,3 +43,5 @@ Miniflux 公式ドキュメント「Third-Party Applications」掲載アプリ�
 3. PWA としてインストールするとアプリのように使えます
    - iPhone / iPad: Safari の共有 → ホーム画面に追加
    - Android / PC: Chrome のメニュー → アプリをインストール
+
+PC で、アプリのようにサイドメニューからカテゴリ・フィードを切り替えたい場合は、別の Web 画面（ReactFlux）を追加できます（[web.md](web.md)）。

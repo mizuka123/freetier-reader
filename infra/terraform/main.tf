@@ -75,6 +75,7 @@ module "cloudflare" {
   account_id              = var.cloudflare_account_id
   zone_id                 = var.cloudflare_zone_id
   hostname                = var.reader_hostname
+  web_hostname            = var.web_hostname
   tunnel_secret           = random_bytes.tunnel_secret.base64
   allowed_emails          = var.allowed_emails
   create_otp_login_method = var.create_otp_login_method

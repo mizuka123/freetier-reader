@@ -309,7 +309,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: cp .env.example .env
-      - run: docker compose --profile cloudflare --profile x --profile morss --profile rsshub config --quiet
+      - run: docker compose --profile cloudflare --profile x --profile morss --profile rsshub --profile web config --quiet
 
   terraform:
     runs-on: ubuntu-latest

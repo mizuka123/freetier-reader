@@ -319,8 +319,22 @@ variable "compose_profiles" {
   type        = list(string)
   default     = ["cloudflare", "x"]
   validation {
-    condition     = alltrue([for p in var.compose_profiles : contains(["cloudflare", "x", "morss", "rsshub"], p)])
-    error_message = "cloudflare / x / morss / rsshub から選んでください。"
+    condition     = alltrue([for p in var.compose_profiles : contains(["cloudflare", "x", "morss", "rsshub", "web"], p)])
+    error_message = "cloudflare / x / morss / rsshub / web から選んでください。"
+  }
+}
+
+variable "web_hostname" {
+  description = "PC 向けの Web 画面（ReactFlux）を公開するホスト名（例: web.example.com）。空なら公開しない。設定する場合は compose_profiles に web を含める（docs/web.md）"
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.web_hostname == "" || can(regex("^([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$", var.web_hostname))
+    error_message = "web.example.com のような小文字のホスト名を指定してください（https:// や / は不要）。"
+  }
+  validation {
+    condition     = var.web_hostname == "" || (contains(var.compose_profiles, "web") && var.web_hostname != var.reader_hostname)
+    error_message = "web_hostname を設定する場合は compose_profiles に web を含め、reader_hostname とは別のホスト名にしてください。"
   }
 }
 

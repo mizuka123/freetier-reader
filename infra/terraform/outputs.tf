@@ -3,6 +3,11 @@ output "reader_url" {
   value       = "https://${var.reader_hostname}/"
 }
 
+output "web_url" {
+  description = "PC 向けの Web 画面（ReactFlux）の URL（web_hostname が空なら null）"
+  value       = var.web_hostname == "" ? null : "https://${var.web_hostname}/"
+}
+
 output "admin_username" {
   value = var.admin_username
 }

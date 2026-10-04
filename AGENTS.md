@@ -6,7 +6,7 @@
 
 | パス | 内容 |
 |---|---|
-| `compose.yml` | 全コンテナの定義。オプション機能は Compose のプロファイル（`cloudflare` / `x` / `morss` / `rsshub`） |
+| `compose.yml` | 全コンテナの定義。オプション機能は Compose のプロファイル（`cloudflare` / `x` / `morss` / `rsshub` / `web`） |
 | `services/x-webhook-rss/` | IFTTT Webhook → Atom の自作サービス（Node.js 24、ESM、外部依存なし。DB は `node:sqlite`） |
 | `services/fetch-proxy/` | Miniflux が compose 内部のフィードを取得するための転送プロキシ（tinyproxy。許可したホストだけを中継）。Miniflux 本体は内部ネットワークへの直接接続を拒否する設定 |
 | `themes/dads/` | Miniflux 用 CSS テーマとそのテスト |
@@ -31,7 +31,7 @@ shellcheck -S warning -x scripts/*.sh
 
 # Compose
 cp -n .env.example .env
-docker compose --profile cloudflare --profile x --profile morss --profile rsshub config --quiet
+docker compose --profile cloudflare --profile x --profile morss --profile rsshub --profile web config --quiet
 
 # Terraform
 (cd infra/terraform && terraform fmt -check -recursive && terraform init -backend=false && terraform validate && tflint --recursive)
