@@ -98,9 +98,10 @@ function safeDecode(segment) {
  *   config: Pick<import('./config.js').Config, 'webhookToken' | 'allowedUsers' | 'maxItems' | 'tzOffset' | 'publicBaseUrl' | 'staleHours'>,
  *   now?: () => Date,
  *   log?: Pick<Console, 'warn' | 'error'>,
+ *   onPostCreated?: () => void,  新しい投稿を保存した後に呼ぶ（リンクカードの画像の取得を始める）
  * }} deps
  */
-export function createApp({ db, config, now = () => new Date(), log = console }) {
+export function createApp({ db, config, now = () => new Date(), log = console, onPostCreated = () => {} }) {
   function reject(status, reason, username = '') {
     log.warn(`hook rejected: status=${status} reason=${reason}${username ? ` username=${username}` : ''}`);
     return new HttpError(status, reason);
@@ -163,7 +164,9 @@ export function createApp({ db, config, now = () => new Date(), log = console })
     db.recordWebhook(key, receivedAt.toISOString());
 
     const status = { created: 201, duplicate: 200, pruned: 200 }[result];
-    return send(req, res, status, result);
+    send(req, res, status, result);
+    // 応答を返してから、裏でリンクカードの画像を取得する（IFTTT を待たせない）
+    if (result === 'created') onPostCreated();
   }
 
   function handleFeed(req, res, username) {

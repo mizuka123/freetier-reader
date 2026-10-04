@@ -11,11 +11,15 @@ function titleOf(text) {
 
 function contentHtml(post) {
   const body = escapeXml(post.text).replace(/\r?\n/g, '<br>');
-  return `<p>${body}</p><p><a href="${escapeXml(post.link)}">View on X</a></p>`;
+  // リンクカードの画像（linkpreview.js）。http(s) の URL だけを入れる
+  const image = /^https?:\/\//i.test(post.image_url ?? '')
+    ? `<p><img src="${escapeXml(post.image_url)}" alt=""></p>`
+    : '';
+  return `<p>${body}</p>${image}<p><a href="${escapeXml(post.link)}">View on X</a></p>`;
 }
 
 /**
- * @param {{ username: string, selfUrl: string, posts: Array<{link: string, text: string, created_at: string}> }} args
+ * @param {{ username: string, selfUrl: string, posts: Array<{link: string, text: string, created_at: string, image_url?: string | null}> }} args
  */
 export function buildAtom({ username, selfUrl, posts }) {
   const updated = posts[0]?.created_at ?? new Date(0).toISOString();

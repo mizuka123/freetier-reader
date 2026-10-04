@@ -21,3 +21,10 @@ test('改行は <br> に変換してエスケープされる', () => {
   const xml = buildAtom({ username: 'a', selfUrl: 'http://h', posts: [post('x\ny')] });
   assert.match(xml, /x&lt;br&gt;y/);
 });
+
+test('image_url があれば本文に img を入れ、http(s) 以外は入れない', () => {
+  const xml = (image_url) => buildAtom({ username: 'a', selfUrl: 'http://h', posts: [{ ...post('x'), image_url }] });
+  assert.match(xml('https://img.example/a.jpg'), /&lt;img src=&quot;https:\/\/img\.example\/a\.jpg&quot;/);
+  assert.doesNotMatch(xml('javascript:alert(1)'), /img src/);
+  assert.doesNotMatch(xml(null), /img src/);
+});

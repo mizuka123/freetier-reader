@@ -94,6 +94,7 @@ services:
       X_IFTTT_TZ_OFFSET: ${X_IFTTT_TZ_OFFSET:-+09:00}
       X_MAX_ITEMS: ${X_MAX_ITEMS:-200}
       X_STALE_HOURS: ${X_STALE_HOURS:-72}
+      X_LINK_PREVIEW: ${X_LINK_PREVIEW:-true}
     volumes:
       - x-data:/data
     healthcheck:

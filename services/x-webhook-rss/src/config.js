@@ -13,6 +13,14 @@ function intInRange(env, name, fallback, min, max) {
   return n;
 }
 
+function bool(env, name, fallback) {
+  const raw = (env[name] ?? '').trim().toLowerCase();
+  if (raw === '') return fallback;
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  throw new Error(`${name} must be true or false (got "${env[name]}")`);
+}
+
 /**
  * @typedef {object} Config
  * @property {number} port
@@ -23,6 +31,7 @@ function intInRange(env, name, fallback, min, max) {
  * @property {number} maxItems        アカウントごとの保持件数
  * @property {number} staleHours      最終受信からこの時間を超えたら /status が 503（0 なら無効）
  * @property {string} publicBaseUrl   フィードの self リンクに使うベース URL
+ * @property {boolean} linkPreview    本文のリンク先からリンクカードの画像（og:image）を取得するか
  */
 
 /**
@@ -59,5 +68,6 @@ export function loadConfig(env) {
     maxItems: intInRange(env, 'X_MAX_ITEMS', 200, 1, 10000),
     staleHours: intInRange(env, 'X_STALE_HOURS', 72, 0, 24 * 365),
     publicBaseUrl: (env.X_FEED_BASE_URL || 'http://x-webhook-rss:8080').replace(/\/+$/, ''),
+    linkPreview: bool(env, 'X_LINK_PREVIEW', true),
   };
 }

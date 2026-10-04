@@ -13,6 +13,7 @@ import { DatabaseSync } from 'node:sqlite';
  * @property {string} link
  * @property {string} text
  * @property {string} created_at
+ * @property {string | null} image_url  リンクカードの画像（linkpreview.js）
  */
 
 /**
@@ -40,6 +41,12 @@ export function openDb(path, now = () => new Date()) {
     );
     CREATE INDEX IF NOT EXISTS posts_user_created ON posts (username, created_at DESC);
   `);
+  // 後から追加した列（既存の DB にも足す）
+  //   image_url:       リンクカードの画像の URL（なければ NULL）
+  //   preview_checked: 画像の取得を試みたか（0 = 未処理。起動時と受信時に処理する）
+  const columns = new Set(db.prepare('PRAGMA table_info(posts)').all().map((c) => c.name));
+  if (!columns.has('image_url')) db.exec('ALTER TABLE posts ADD COLUMN image_url TEXT');
+  if (!columns.has('preview_checked')) db.exec('ALTER TABLE posts ADD COLUMN preview_checked INTEGER NOT NULL DEFAULT 0');
 
   const insert = db.prepare(`
     INSERT INTO posts (username, link, text, created_at, received_at)
@@ -47,9 +54,13 @@ export function openDb(path, now = () => new Date()) {
     ON CONFLICT (link) DO NOTHING
   `);
   const listByUser = db.prepare(`
-    SELECT username, link, text, created_at FROM posts
+    SELECT username, link, text, created_at, image_url FROM posts
     WHERE username = ? ORDER BY created_at DESC, id DESC LIMIT ?
   `);
+  const listPending = db.prepare(`
+    SELECT link, text FROM posts WHERE preview_checked = 0 ORDER BY id DESC LIMIT ?
+  `);
+  const savePreview = db.prepare('UPDATE posts SET image_url = ?, preview_checked = 1 WHERE link = ?');
   const prune = db.prepare(`
     DELETE FROM posts WHERE username = ? AND id NOT IN (
       SELECT id FROM posts WHERE username = ? ORDER BY created_at DESC, id DESC LIMIT ?
@@ -75,6 +86,20 @@ export function openDb(path, now = () => new Date()) {
     /** @returns {PostRow[]} */
     listPosts(username, limit) {
       return listByUser.all(username, limit);
+    },
+    /**
+     * リンクカードの画像をまだ取得していない投稿（新しい順）
+     * @returns {Array<{ link: string, text: string }>}
+     */
+    pendingPreviews(limit) {
+      return listPending.all(limit);
+    },
+    /**
+     * @param {string} link
+     * @param {string | null} imageUrl 見つからなければ null（処理済みとして記録する）
+     */
+    setPreview(link, imageUrl) {
+      savePreview.run(imageUrl, link);
     },
     /**
      * @param {string} username 小文字化済み
