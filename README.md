@@ -5,6 +5,7 @@
 - **RSS があるサイト** … そのまま購読、要約だけの RSS は全文を補完
 - **RSS がないサイト** … CSS セレクタで記事一覧と本文を抜き出してフィード化
 - **X（旧Twitter）** … IFTTT の公式連携で投稿を受け取り、アカウント別フィード化
+- **Notion に保存** … スターを付けた記事を本文ごと Notion のデータベースに保存（任意。[docs/notion.md](docs/notion.md)）
 - **ログイン認証** … Cloudflare Access + Miniflux（パスキー / TOTP）。スマホ・タブレットのアプリは同期 API で初回設定のみ
 - **デザイン** … デジタル庁デザインシステムのトークンを参考にした非公式の画面テーマ（ライト/ダーク。主な色の組み合わせが WCAG 2.2 AA のコントラスト比を満たすことを CI で検証）
 - **IaC** … Terraform で OCI と Cloudflare を一括構築
@@ -25,6 +26,7 @@
    │                 ├─ rss-bridge（RSS のないサイト）                    │
    │                 ├─ x-webhook-rss（IFTTT → アカウント別 Atom、自作）   │
    │                 └─ morss / rsshub（任意）                           │
+   │ star-to-notion（スター付きの記事 → Notion、任意・自作）              │
    │ cloudflared → reactflux（PC 向け Web 画面、任意。API は miniflux へ）│
    └────────────────────────────────────────────────────────────────────┘
 ```
@@ -39,6 +41,7 @@
 | cloudflared | Cloudflare Tunnel | `cloudflare` |
 | morss | 全文取得の補助 | `morss` |
 | rsshub | RSSHub | `rsshub` |
+| star-to-notion | スターを付けた記事を本文ごと Notion に保存（[services/star-to-notion](services/star-to-notion)、[docs/notion.md](docs/notion.md)） | `notion` |
 | reactflux | PC 向けの Web 画面（サイドメニュー付きの 3 ペイン。[docs/web.md](docs/web.md)） | `web` |
 
 ## 必要なもの・費用

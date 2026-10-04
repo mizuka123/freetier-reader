@@ -21,6 +21,18 @@ jobs:
           node-version: 24
       - run: npm test
 
+  star-to-notion-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/star-to-notion
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm test
+
   theme:
     # テーマの色の組み合わせが WCAG 2.2 AA のコントラスト比を満たすこと
     runs-on: ubuntu-latest
@@ -226,6 +238,56 @@ jobs:
           docker compose ps -a
           docker compose logs postgres fetch-proxy miniflux x-webhook-rss
 
+  backup-restore-e2e:
+    # backup.sh → データの変更 → restore.sh で、PostgreSQL と SQLite（x-webhook-rss / star-to-notion）が
+    # バックアップの時点に戻ること（Notion へは接続しない。Miniflux の API キーがダミーのため送信前に止まる）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare .env (Miniflux + x-webhook-rss + star-to-notion)
+        run: |
+          cp .env.example .env
+          sed -i -e 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=x,notion/' \
+                 -e 's/^READER_HOSTNAME=.*/READER_HOSTNAME=localhost/' \
+                 -e 's/^CLOUDFLARE_TUNNEL_TOKEN=CHANGE_ME$/CLOUDFLARE_TUNNEL_TOKEN=unused/' \
+                 -e 's/^NOTION_TOKEN=.*/NOTION_TOKEN=dummy/' \
+                 -e 's/^NOTION_DATABASE_ID=.*/NOTION_DATABASE_ID=0123456789abcdef0123456789abcdef/' \
+                 -e 's/^STAR_MINIFLUX_API_KEY=.*/STAR_MINIFLUX_API_KEY=dummy/' .env
+          bash scripts/init.sh
+      - run: docker compose up -d --build --wait
+      - name: Backup, change, restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          sq() { docker compose exec -T "$1" node -e "const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync('/data/$1.db'); $2"; }
+          ./scripts/backup.sh | tee /tmp/backup.log
+          archive="$(tail -n 1 /tmp/backup.log)"
+          tar -tzf "$archive" | sort | tee /tmp/members
+          grep -qx './miniflux.dump' /tmp/members
+          grep -qx './x-webhook-rss.db' /tmp/members
+          grep -qx './star-to-notion.db' /tmp/members
+
+          echo "--- change data after the backup"
+          for s in x-webhook-rss star-to-notion; do
+            sq "$s" "db.prepare(\"INSERT INTO meta (key, value) VALUES ('ci_marker', 'after-backup')\").run();"
+          done
+          docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U miniflux -d miniflux -c 'CREATE TABLE ci_marker (x int);'
+
+          echo "--- restore and check that the changes are gone"
+          ./scripts/restore.sh --yes "$archive"
+          for s in x-webhook-rss star-to-notion; do
+            test "$(sq "$s" "console.log(db.prepare(\"SELECT COUNT(*) AS n FROM meta WHERE key = 'ci_marker'\").get().n)")" = 0
+          done
+          test -z "$(docker compose exec -T postgres psql -U miniflux -d miniflux -tAc "SELECT to_regclass('ci_marker')")"
+          docker compose ps
+          # 復元後もサービスが動き、star-to-notion の DB が使える
+          docker compose exec -T star-to-notion node src/cli.js status > /tmp/status.txt || true
+          grep -q '"counts"' /tmp/status.txt
+      - if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs postgres miniflux x-webhook-rss star-to-notion
+
   service-image:
     # PR でも Dockerfile を amd64 / arm64（OCI A1）の両方でビルドし、起動して /healthz を確認する
     strategy:
@@ -256,6 +318,36 @@ jobs:
           test "$(proxied http://example.com/)" = 403
       - if: failure()
         run: docker logs x-webhook-rss; docker logs fetch-proxy
+      - run: docker build -t star-to-notion:ci services/star-to-notion
+      - name: Smoke test (star-to-notion)
+        # compose と同じ制限（読み取り専用・権限なし）で起動する。Miniflux に届かない設定なので、
+        # 起動して /healthz が応答し、異常が /status と管理コマンドに出ることを確認する（Notion へは接続しない）
+        run: |
+          docker volume create notion-ci
+          docker run -d --name star-to-notion --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            -v notion-ci:/data -e NOTION_TOKEN=dummy -e NOTION_DATABASE_ID=0123456789abcdef0123456789abcdef \
+            -e STAR_MINIFLUX_API_KEY=dummy -e MINIFLUX_URL=http://127.0.0.1:9 -e MINIFLUX_PUBLIC_URL=https://reader.example.com \
+            star-to-notion:ci
+          for i in $(seq 1 30); do
+            docker exec star-to-notion wget -qO- http://127.0.0.1:8080/healthz && break
+            sleep 1
+          done
+          docker exec star-to-notion wget -qO- http://127.0.0.1:8080/healthz | grep -qx ok
+          for i in $(seq 1 30); do
+            docker logs star-to-notion 2>&1 | grep -q 'could not list starred entries' && break
+            sleep 1
+          done
+          docker logs star-to-notion 2>&1 | grep -q 'could not list starred entries'
+          test "$(docker inspect -f '{{.State.Running}}' star-to-notion)" = true
+          if docker exec star-to-notion node src/cli.js status > /tmp/status.txt; then echo "expected status to report a problem"; exit 1; fi
+          grep -q '"minifluxError"' /tmp/status.txt
+          # 起動時の設定の誤りは、秘密値を出さずに止まる
+          if docker run --rm -e NOTION_TOKEN='leak me' -e NOTION_DATABASE_ID=0123456789abcdef0123456789abcdef \
+            -e STAR_MINIFLUX_API_KEY=dummy star-to-notion:ci > /tmp/bad.txt 2>&1; then echo "expected a config error"; exit 1; fi
+          grep -q 'NOTION_TOKEN must not contain whitespace' /tmp/bad.txt
+          if grep -q 'leak me' /tmp/bad.txt; then echo "the secret was printed"; exit 1; fi
+      - if: failure()
+        run: docker logs star-to-notion
       # 外部イメージの ReactFlux（compose.yml で固定した digest）も両アーキテクチャで起動し、
       # healthcheck・SPA のディープリンク・JS の配信を確認する（Dependabot の更新 PR で壊れていないか）
       - name: Smoke test (reactflux)
@@ -323,7 +415,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: cp .env.example .env
-      - run: docker compose --profile cloudflare --profile x --profile morss --profile rsshub --profile web config --quiet
+      - run: docker compose --profile cloudflare --profile x --profile morss --profile rsshub --profile web --profile notion config --quiet
 
   terraform:
     runs-on: ubuntu-latest
