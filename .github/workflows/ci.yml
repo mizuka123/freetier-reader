@@ -256,6 +256,20 @@ jobs:
           test "$(proxied http://example.com/)" = 403
       - if: failure()
         run: docker logs x-webhook-rss; docker logs fetch-proxy
+      # 外部イメージの ReactFlux（compose.yml で固定した digest）も両アーキテクチャで起動し、
+      # healthcheck・SPA のディープリンク・JS の配信を確認する（Dependabot の更新 PR で壊れていないか）
+      - name: Smoke test (reactflux)
+        run: |
+          cp .env.example .env
+          docker compose --profile web up -d --wait --wait-timeout 120 reactflux
+          get() { docker compose exec -T reactflux wget -qO- "http://127.0.0.1:2000$1"; }
+          index="$(get /category/1)"
+          grep -q 'id="root"' <<<"$index"
+          script="$(grep -oE 'src="[^"]+\.js"' <<<"$index" | head -n 1 | cut -d'"' -f2)"
+          test -n "$script"
+          get "$script" | head -c 100 | grep -q .
+      - if: failure()
+        run: docker compose --profile web logs reactflux
 
   shell:
     runs-on: ubuntu-latest
@@ -309,7 +323,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: cp .env.example .env
-      - run: docker compose --profile cloudflare --profile x --profile morss --profile rsshub config --quiet
+      - run: docker compose --profile cloudflare --profile x --profile morss --profile rsshub --profile web config --quiet
 
   terraform:
     runs-on: ubuntu-latest

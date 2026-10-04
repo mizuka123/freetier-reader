@@ -118,6 +118,18 @@ services:
       miniflux:
         condition: service_healthy
 
+  # PC 向けの Web 画面（ReactFlux。MIT）。サイドメニュー + 一覧 + 本文の 3 ペインで、画面遷移なしに切り替えられる。
+  # 静的ファイルを配信するだけで、記事の取得はブラウザから Miniflux の API（/v1/）へ直接行う（docs/web.md）
+  reactflux:
+    profiles: ["web"]
+    image: electh/reactflux:2026.10.03@sha256:819b3695578a5a282de264cf7c2804bfdf97b9dc858ad82820e99b6174de22f8
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2000/ >/dev/null"]
+      interval: 60s
+      start_period: 10s
+
   morss:
     profiles: ["morss"]
     # 公式は latest のみ配布のため digest で固定。AGPL-3.0（改変せずに利用）

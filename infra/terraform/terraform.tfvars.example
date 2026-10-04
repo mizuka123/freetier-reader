@@ -31,6 +31,9 @@ allowed_emails        = ["you@example.com"]
 # create_otp_login_method = false
 # existing_access_idp_ids = ["00000000-0000-0000-0000-000000000000"]
 # api_allowed_countries = ["JP"]
+# PC 向けの Web 画面（ReactFlux）を使う場合（docs/web.md）。compose_profiles に web を足す
+# web_hostname     = "web.example.com"
+# compose_profiles = ["cloudflare", "x", "web"]
 
 # ---- アプリ ----
 # フォークした場合は自分のリポジトリに変更

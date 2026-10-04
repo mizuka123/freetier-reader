@@ -32,6 +32,10 @@ locals {
   country_set = join(" ", [for c in var.api_allowed_countries : "\"${c}\""])
 
   allowed_idps = var.create_otp_login_method ? [cloudflare_zero_trust_access_identity_provider.otp[0].id] : var.existing_idp_ids
+
+  # PC 向けの Web 画面（ReactFlux）。静的ファイルだけを配信し、API は var.hostname の /v1/ を使う
+  web_enabled = var.web_hostname != ""
+  web_ingress = local.web_enabled ? [{ hostname = var.web_hostname, path = null, service = "http://reactflux:2000" }] : []
 }
 
 # ---- Tunnel ----
@@ -48,20 +52,28 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "this" {
 
   config = {
     # 上から順に評価される
-    ingress = [
-      {
-        hostname = var.hostname
-        path     = "^${local.hook_prefix}"
-        service  = "http://x-webhook-rss:8080"
-      },
-      {
-        hostname = var.hostname
-        service  = "http://miniflux:8080"
-      },
-      {
-        service = "http_status:404"
-      },
-    ]
+    ingress = concat(
+      [
+        {
+          hostname = var.hostname
+          path     = "^${local.hook_prefix}"
+          service  = "http://x-webhook-rss:8080"
+        },
+        {
+          hostname = var.hostname
+          path     = null
+          service  = "http://miniflux:8080"
+        },
+      ],
+      local.web_ingress,
+      [
+        {
+          hostname = null
+          path     = null
+          service  = "http_status:404"
+        },
+      ],
+    )
   }
 }
 
@@ -77,6 +89,19 @@ resource "cloudflare_dns_record" "reader" {
   content = "${cloudflare_zero_trust_tunnel_cloudflared.this.id}.cfargotunnel.com"
   proxied = true
   ttl     = 1
+}
+
+resource "cloudflare_dns_record" "web" {
+  count   = local.web_enabled ? 1 : 0
+  zone_id = var.zone_id
+  name    = var.web_hostname
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.this.id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1
+
+  # Access で保護されてからホスト名を公開する
+  depends_on = [cloudflare_zero_trust_access_application.web]
 }
 
 # ---- Access ----
@@ -115,6 +140,19 @@ resource "cloudflare_zero_trust_access_application" "ui" {
   # 使えるログイン方式を明示する（指定しないとアカウントの全 IdP が使える）
   allowed_idps = local.allowed_idps
   policies     = [{ id = cloudflare_zero_trust_access_policy.allow_owner.id, precedence = 1 }]
+}
+
+# Web 画面も UI と同じく本人だけに限定する（API キーはブラウザに保存されるため、画面自体も公開しない）
+resource "cloudflare_zero_trust_access_application" "web" {
+  count            = local.web_enabled ? 1 : 0
+  account_id       = var.account_id
+  name             = "${var.name}-web"
+  type             = "self_hosted"
+  domain           = var.web_hostname
+  destinations     = [{ type = "public", uri = var.web_hostname }]
+  session_duration = var.session_duration
+  allowed_idps     = local.allowed_idps
+  policies         = [{ id = cloudflare_zero_trust_access_policy.allow_owner.id, precedence = 1 }]
 }
 
 # パスがより具体的なアプリケーションが優先されるため、UI アプリより先に評価される
