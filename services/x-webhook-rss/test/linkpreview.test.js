@@ -69,7 +69,7 @@ before(async () => {
     hits.push(req.url);
     const page = (img) => `<html><head><meta property="og:image" content="${img}"></head><body>x</body></html>`;
     switch (req.url) {
-      case '/page': res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(page('/og.jpg'));
+      case '/page': res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(page('https://cdn.example/og.jpg'));
       case '/r1': res.writeHead(301, { location: '/r2' }); return res.end();
       case '/r2': res.writeHead(302, { location: `${base}/page` }); return res.end();
       case '/loop': res.writeHead(302, { location: '/loop' }); return res.end();
@@ -95,7 +95,7 @@ function testPreview(extra = {}) {
 }
 
 test('imageForUrl: リダイレクトをたどって og:image を絶対 URL で返す', async () => {
-  assert.equal(await testPreview().imageForUrl(`${base}/r1`), `${base}/og.jpg`);
+  assert.equal(await testPreview().imageForUrl(`${base}/r1`), 'https://cdn.example/og.jpg');
 });
 
 test('imageForUrl: リダイレクト回数・HTML 以外・x.com・http(s) 以外では取りに行かない', async () => {
