@@ -92,7 +92,9 @@ export function openDb(path, now = () => new Date()) {
   const defer = update(`attempts = attempts + @increment, next_attempt_at = @nextAt, last_error = @error,
     state = CASE WHEN sync_id IS NULL THEN 'pending' ELSE 'sending' END`);
   const setState = update('state = @state, last_error = @error, next_attempt_at = NULL');
-  const reset = update(`state = 'pending', attempts = 0, sync_id = NULL, page_id = NULL, next_attempt_at = NULL, last_error = NULL`);
+  // 前回の送信の同期 ID は残す（作りかけのページがあれば、次の送信の前に片付けられるように）
+  const reset = update(`attempts = 0, next_attempt_at = NULL, last_error = NULL,
+    state = CASE WHEN sync_id IS NULL THEN 'pending' ELSE 'sending' END`);
 
   const transaction = (fn) => {
     db.exec('BEGIN IMMEDIATE');
@@ -217,6 +219,18 @@ export function openDb(path, now = () => new Date()) {
      */
     reset(id) {
       reset.run({ id, now: iso() });
+    },
+
+    /**
+     * failed の記事をすべて送信待ちに戻す（cli.js retry --failed。Notion の長い障害の後など）。
+     * @returns {number} 戻した件数
+     */
+    resetFailed() {
+      const ids = db.prepare("SELECT entry_id FROM entries WHERE state = 'failed'").all().map((r) => Number(r.entry_id));
+      transaction(() => {
+        for (const id of ids) reset.run({ id, now: iso() });
+      });
+      return ids.length;
     },
 
     /** 状態ごとの件数 */

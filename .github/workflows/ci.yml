@@ -238,6 +238,56 @@ jobs:
           docker compose ps -a
           docker compose logs postgres fetch-proxy miniflux x-webhook-rss
 
+  backup-restore-e2e:
+    # backup.sh → データの変更 → restore.sh で、PostgreSQL と SQLite（x-webhook-rss / star-to-notion）が
+    # バックアップの時点に戻ること（Notion へは接続しない。Miniflux の API キーがダミーのため送信前に止まる）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare .env (Miniflux + x-webhook-rss + star-to-notion)
+        run: |
+          cp .env.example .env
+          sed -i -e 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=x,notion/' \
+                 -e 's/^READER_HOSTNAME=.*/READER_HOSTNAME=localhost/' \
+                 -e 's/^CLOUDFLARE_TUNNEL_TOKEN=CHANGE_ME$/CLOUDFLARE_TUNNEL_TOKEN=unused/' \
+                 -e 's/^NOTION_TOKEN=.*/NOTION_TOKEN=dummy/' \
+                 -e 's/^NOTION_DATABASE_ID=.*/NOTION_DATABASE_ID=0123456789abcdef0123456789abcdef/' \
+                 -e 's/^STAR_MINIFLUX_API_KEY=.*/STAR_MINIFLUX_API_KEY=dummy/' .env
+          bash scripts/init.sh
+      - run: docker compose up -d --build --wait
+      - name: Backup, change, restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          sq() { docker compose exec -T "$1" node -e "const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync('/data/$1.db'); $2"; }
+          ./scripts/backup.sh | tee /tmp/backup.log
+          archive="$(tail -n 1 /tmp/backup.log)"
+          tar -tzf "$archive" | sort | tee /tmp/members
+          grep -qx './miniflux.dump' /tmp/members
+          grep -qx './x-webhook-rss.db' /tmp/members
+          grep -qx './star-to-notion.db' /tmp/members
+
+          echo "--- change data after the backup"
+          for s in x-webhook-rss star-to-notion; do
+            sq "$s" "db.prepare(\"INSERT INTO meta (key, value) VALUES ('ci_marker', 'after-backup')\").run();"
+          done
+          docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U miniflux -d miniflux -c 'CREATE TABLE ci_marker (x int);'
+
+          echo "--- restore and check that the changes are gone"
+          ./scripts/restore.sh --yes "$archive"
+          for s in x-webhook-rss star-to-notion; do
+            test "$(sq "$s" "console.log(db.prepare(\"SELECT COUNT(*) AS n FROM meta WHERE key = 'ci_marker'\").get().n)")" = 0
+          done
+          test -z "$(docker compose exec -T postgres psql -U miniflux -d miniflux -tAc "SELECT to_regclass('ci_marker')")"
+          docker compose ps
+          # 復元後もサービスが動き、star-to-notion の DB が使える
+          docker compose exec -T star-to-notion node src/cli.js status > /tmp/status.txt || true
+          grep -q '"counts"' /tmp/status.txt
+      - if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs postgres miniflux x-webhook-rss star-to-notion
+
   service-image:
     # PR でも Dockerfile を amd64 / arm64（OCI A1）の両方でビルドし、起動して /healthz を確認する
     strategy:

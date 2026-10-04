@@ -9,7 +9,7 @@
 // 送信の途中で止まった記事は、次の回に同期 ID でページを探し、完成していれば保存済みにし、
 // 作りかけ（状態が「保存中」）ならゴミ箱へ移して作り直す。同期 ID が一致しないページには触らない。
 import { randomUUID } from 'node:crypto';
-import { contentLength } from './blocks.js';
+import { contentLength, safeUrl } from './blocks.js';
 import { MinifluxError } from './miniflux.js';
 import { NotionError } from './notion.js';
 import { MODES, PROPERTIES, buildPage, checkSchema, completedMode, readPage } from './page.js';
@@ -20,11 +20,11 @@ export const MAX_ATTEMPTS = 8;
 const BATCH = 50;
 
 /**
- * 再試行までの待ち時間（1 分・2 分・4 分…最大 6 時間）
+ * 再試行までの待ち時間（5 分・10 分・20 分…最大 6 時間。failed になるまで約 10 時間。Notion の数時間の障害なら failed にならない）
  * @param {number} attempts  これまでの失敗回数（1 以上）
  */
 export function backoffMs(attempts) {
-  return Math.min(60_000 * 2 ** Math.max(0, attempts - 1), 6 * 3600_000);
+  return Math.min(5 * 60_000 * 2 ** Math.max(0, attempts - 1), 6 * 3600_000);
 }
 
 /** NotionError のうち、503 で「書き込みは反映済み」と返ったもの */
@@ -52,15 +52,23 @@ export function createSyncer(deps) {
 
   const later = (ms) => new Date(now().getTime() + ms);
 
-  /** Notion のデータベースを確かめ、データソースの ID を得る（成功したら覚えておく） */
-  async function ensureDataSource() {
-    if (dataSourceId) return dataSourceId;
-    const id = await notion.dataSourceId(config.notionDatabaseId);
+  /**
+   * データベースのプロパティ（列）が揃っているか確かめる。足りなければサービス全体の異常にする
+   * @param {string} id  データソースの ID
+   */
+  async function verifySchema(id) {
     const ds = await notion.getDataSource(id);
     const problems = checkSchema(ds?.properties);
     if (problems.length) {
       throw new NotionError(`notion database is not ready: ${problems.join('; ')} (run: node src/cli.js setup-notion)`, { kind: 'fatal' });
     }
+  }
+
+  /** Notion のデータベースを確かめ、データソースの ID を得る（成功したら覚えておく） */
+  async function ensureDataSource() {
+    if (dataSourceId) return dataSourceId;
+    const id = await notion.dataSourceId(config.notionDatabaseId);
+    await verifySchema(id);
     dataSourceId = id;
     return id;
   }
@@ -128,12 +136,14 @@ export function createSyncer(deps) {
 
   /**
    * 同じ記事のページがすでにあるか（記録を失った・バックアップから戻した場合など）。
-   * @param {number} entryId
+   * Miniflux の記事 ID はバックアップから戻すと別の記事に再利用されることがあるため、URL も一致するページだけを同じ記事とみなす。
+   * @param {import('./miniflux.js').Entry} entry
    * @param {string} ds
    */
-  async function existingPage(entryId, ds) {
-    const pages = await notion.query(ds, { property: PROPERTIES.entryId.name, number: { equals: entryId } });
-    const live = pages.map(readPage).filter((p) => !p.inTrash);
+  async function existingPage(entry, ds) {
+    const pages = await notion.query(ds, { property: PROPERTIES.entryId.name, number: { equals: entry.id } });
+    const url = safeUrl(entry.url);
+    const live = pages.map(readPage).filter((p) => !p.inTrash && p.url === url);
     for (const p of live) {
       const mode = completedMode(p.status);
       if (mode) return { complete: true, pageId: p.id, mode };
@@ -153,12 +163,17 @@ export function createSyncer(deps) {
     const page = buildPage(entry, content, mode, {
       publicBaseUrl: config.minifluxPublicUrl, maxBlocks: config.maxBlocks, syncId, savedAt: now(),
     });
+    // 本文を受け付けなかった（作成・追記の 400）ことを呼び出し元が見分けられるように印を付ける
+    const contentStep = (err) => {
+      if (err instanceof NotionError && err.kind === 'invalid') err.contentRejected = true;
+      return err;
+    };
     let pageId;
     try {
       pageId = await notion.createPage(ds, page.properties, page.chunks[0] ?? []);
     } catch (err) {
       // 503 で「作成は反映済み」と返った場合は、そのページで続ける（作り直すと二重になる）
-      if (!committed(err)) throw err;
+      if (!committed(err)) throw contentStep(err);
       pageId = /** @type {NotionError} */ (err).committedResourceId;
     }
     db.setPageId(entry.id, /** @type {string} */ (pageId));
@@ -166,7 +181,7 @@ export function createSyncer(deps) {
       try {
         await notion.appendChildren(pageId, chunk);
       } catch (err) {
-        if (!committed(err)) throw err;
+        if (!committed(err)) throw contentStep(err);
       }
     }
     try {
@@ -186,23 +201,12 @@ export function createSyncer(deps) {
   async function processEntry(row, ds) {
     const id = row.entry_id;
     try {
-      if (row.state === 'sending' && row.sync_id) {
+      const recovering = row.state === 'sending' && row.sync_id !== null;
+      if (recovering) {
         const recovered = await recover(row, ds);
         if (recovered) {
           db.markDone(id, { pageId: recovered.pageId, mode: recovered.mode, converterVersion: null });
           log.log(`entry ${id}: the page from an interrupted attempt was complete; marked as saved`);
-          return 'continue';
-        }
-      } else {
-        const existing = await existingPage(id, ds);
-        if (existing?.complete) {
-          db.markDone(id, { pageId: existing.pageId, mode: existing.mode, converterVersion: null });
-          log.log(`entry ${id}: already saved in Notion; marked as saved`);
-          return 'continue';
-        }
-        if (existing) {
-          db.setState(id, 'review', `an incomplete page for this entry exists in Notion but was not created by the current attempt; delete it in Notion and run: node src/cli.js retry ${id}`);
-          log.warn(`entry ${id}: found an incomplete page not created by this attempt; left it untouched (state: review)`);
           return 'continue';
         }
       }
@@ -218,6 +222,20 @@ export function createSyncer(deps) {
         }
         throw err;
       }
+
+      if (!recovering) {
+        const existing = await existingPage(entry, ds);
+        if (existing?.complete) {
+          db.markDone(id, { pageId: existing.pageId, mode: existing.mode, converterVersion: null });
+          log.log(`entry ${id}: already saved in Notion; marked as saved`);
+          return 'continue';
+        }
+        if (existing) {
+          db.setState(id, 'review', `an incomplete page for this entry exists in Notion but was not created by the current attempt; delete it in Notion and run: node src/cli.js retry ${id}`);
+          log.warn(`entry ${id}: found an incomplete page not created by this attempt; left it untouched (state: review)`);
+          return 'continue';
+        }
+      }
       const content = await chooseContent(entry);
 
       for (const mode of MODES) {
@@ -232,7 +250,9 @@ export function createSyncer(deps) {
           return 'continue';
         } catch (err) {
           // 本文を受け付けなかった場合だけ、作りかけを片付けてから簡単な形で送り直す
-          if (!(err instanceof NotionError && err.kind === 'invalid') || mode === 'minimal') throw err;
+          if (!(err instanceof NotionError && err.contentRejected) || mode === 'minimal') throw err;
+          // 列の名前の変更・削除でも 400 になるため、先にデータベースを確かめる（足りなければサービス全体の異常）
+          await verifySchema(ds);
           const pageId = db.get(id)?.page_id;
           if (pageId) await notion.trashPage(pageId);
           log.warn(`entry ${id}: Notion rejected the ${mode} content (${err.message}); retrying with a simpler page`);
@@ -258,7 +278,8 @@ export function createSyncer(deps) {
       log.warn(`notion rate limit: pausing for ${Math.ceil(waitMs / 1000)}s`);
       return 'stop';
     }
-    if ((err instanceof NotionError && (err.kind === 'fatal' || err.kind === 'not_found'))
+    // 個々のページの 404（送信中にページが削除されたなど）は、その記事だけの失敗として扱う
+    if ((err instanceof NotionError && (err.kind === 'fatal' || (err.kind === 'not_found' && err.resource !== 'page')))
       || (err instanceof MinifluxError && err.kind === 'fatal')) {
       const service = err instanceof NotionError ? 'notion' : 'miniflux';
       const detail = err instanceof NotionError && err.blockLimit
@@ -295,25 +316,28 @@ export function createSyncer(deps) {
         log.error(`miniflux: could not list starred entries: ${err.message}${hint}`);
         return;
       }
-      if (now().getTime() < pausedUntil) return;
-      const due = db.due(BATCH);
-      if (due.length === 0) return;
-
-      let ds;
-      try {
-        ds = await ensureDataSource();
-      } catch (err) {
-        const detail = err instanceof NotionError && err.kind === 'not_found'
-          ? `${err.message} (is the database shared with the connection?)`
-          : err.message;
-        db.setMeta('notion_error', detail);
-        log.error(`notion: ${detail}`);
-        return;
+      if (now().getTime() >= pausedUntil) {
+        // 送る記事がなくても、起動直後に Notion の設定（トークン・共有・列）を確かめる
+        let ds = null;
+        try {
+          ds = await ensureDataSource();
+          db.setMeta('notion_setup_error', null);
+        } catch (err) {
+          const detail = err instanceof NotionError && err.kind === 'not_found'
+            ? `${err.message} (is the database shared with the connection?)`
+            : err.message;
+          db.setMeta('notion_setup_error', detail);
+          log.error(`notion: ${detail}`);
+        }
+        if (ds) {
+          for (const row of db.due(BATCH)) {
+            if (stopping()) break;
+            if ((await processEntry(row, ds)) === 'stop') break;
+          }
+        }
       }
-      for (const row of due) {
-        if (stopping()) break;
-        if ((await processEntry(row, ds)) === 'stop') break;
-      }
+      // 最後まで処理できた（例外で中断していない）ことを記録する。/status がその古さを見る
+      db.setMeta('last_tick_ok_at', now().toISOString());
     },
   };
 }

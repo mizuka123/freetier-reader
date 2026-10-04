@@ -151,6 +151,7 @@ export function readPage(page) {
     inTrash: page?.in_trash === true || page?.archived === true,
     syncId: (props[PROPERTIES.syncId.name]?.rich_text ?? []).map((t) => t?.plain_text ?? t?.text?.content ?? '').join(''),
     status: props[PROPERTIES.status.name]?.select?.name ?? null,
+    url: props[PROPERTIES.url.name]?.url ?? null,
   };
 }
 

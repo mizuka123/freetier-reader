@@ -2,7 +2,7 @@
 //   status                 状態の要約と、確認が必要な記事
 //   setup-notion           Notion のデータベースに足りないプロパティを追加する
 //   backfill <N> | --all   導入前からスターが付いていた記事を、新しいものから N 件（または全部）送信待ちにする
-//   retry <ID>             failed / missing / review / ignored / baseline の記事を送信待ちに戻す
+//   retry <ID> | --failed  failed / missing / review / ignored / baseline の記事（--failed は failed すべて）を送信待ちに戻す
 //   ack <ID> | --all       failed / missing / review の記事を確認済み（ignored）にする（監視の異常から外す）
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.js';
@@ -12,7 +12,7 @@ import { schemaChanges } from './page.js';
 import { statusReport } from './status.js';
 
 const RETRYABLE_STATES = ['failed', 'missing', 'review', 'ignored', 'baseline'];
-const USAGE = 'usage: node src/cli.js status | setup-notion | backfill <N>|--all | retry <ID> | ack <ID>|--all';
+const USAGE = 'usage: node src/cli.js status | setup-notion | backfill <N>|--all | retry <ID>|--failed | ack <ID>|--all';
 
 class UsageError extends Error {}
 
@@ -93,6 +93,11 @@ function run(db, command, arg, env, out) {
       return 0;
     }
     case 'retry': {
+      if (arg === '--failed') {
+        const n = db.resetFailed();
+        out.log(`${n} failed entr${n === 1 ? 'y' : 'ies'} will be sent on the next run`);
+        return 0;
+      }
       const id = positive(arg);
       const row = db.get(id);
       if (!row) {

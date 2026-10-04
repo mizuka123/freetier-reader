@@ -59,8 +59,8 @@ backup_sqlite() {
   docker compose cp "${service}:${sqlite_tmp}" "${work}/${service}.db"
   docker compose exec -T "$service" rm -f "$sqlite_tmp"
 }
-profile_enabled x && backup_sqlite x-webhook-rss
-profile_enabled notion && backup_sqlite star-to-notion
+if profile_enabled x; then backup_sqlite x-webhook-rss; fi
+if profile_enabled notion; then backup_sqlite star-to-notion; fi
 
 # 書き込み途中のファイルを正規のバックアップと誤認しないよう .partial から rename する
 tar -C "$work" -czf "${archive}.partial" .

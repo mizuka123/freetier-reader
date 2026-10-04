@@ -178,22 +178,104 @@ test('pages whose sync id does not match are never trashed', async () => {
   assert.equal(db.get(1).state, 'done');
 });
 
+const existing = (notion, id, status, url = `https://news.example.com/${id}`) => notion.createPage('ds-1', {
+  [PROPERTIES.entryId.name]: { number: id },
+  [PROPERTIES.url.name]: { url },
+  [PROPERTIES.status.name]: { select: { name: status } },
+}, []);
+
 test('an entry already saved in Notion (e.g. after a restore) is not sent again', async () => {
   const { db, miniflux, notion, syncer } = await setup();
-  await notion.createPage('ds-1', {
-    [PROPERTIES.entryId.name]: { number: 5 },
-    [PROPERTIES.status.name]: { select: { name: STATUS.full } },
-  }, []);
-  await notion.createPage('ds-1', {
-    [PROPERTIES.entryId.name]: { number: 6 },
-    [PROPERTIES.status.name]: { select: { name: STATUS.sending } },
-  }, []);
+  await existing(notion, 5, STATUS.full);
+  await existing(notion, 6, STATUS.sending);
   miniflux.add(5).add(6).star(5, 6);
   await syncer.tick();
   assert.equal(db.get(5).state, 'done');
   assert.equal(db.get(6).state, 'review');
   assert.equal(notion.pages.size, 2);
   assert.equal(notion.live().length, 2);
+});
+
+test('a page with the same Miniflux ID but another URL (a reused ID) is not adopted', async () => {
+  const { db, miniflux, notion, syncer } = await setup();
+  await existing(notion, 7, STATUS.full, 'https://old.example.com/other-article');
+  miniflux.add(7).star(7);
+  await syncer.tick();
+  assert.equal(db.get(7).state, 'done');
+  assert.equal(notion.live().length, 2);
+});
+
+test('retry after failure cleans up the incomplete page from the last attempt', async () => {
+  const { db, miniflux, notion, syncer, advance } = await setup();
+  miniflux.add(1, { content: '<p>x</p>'.repeat(150) }).star(1);
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    notion.fail('appendChildren', notionErrors.uncertain);
+    await syncer.tick();
+    advance(backoffMs(i + 1));
+  }
+  assert.equal(db.get(1).state, 'failed');
+  assert.equal(notion.live().length, 1); // 最後の試行の作りかけ
+  assert.equal(db.resetFailed(), 1);
+  await syncer.tick();
+  assert.equal(db.get(1).state, 'done');
+  assert.equal(notion.live().length, 1);
+  assert.equal(statusOf(notion.live()[0]), STATUS.full);
+});
+
+test('a page deleted during sending is retried for that entry only', async () => {
+  const { db, miniflux, notion, syncer, advance } = await setup();
+  miniflux.add(1, { content: '<p>x</p>'.repeat(150) }).add(2).star(1, 2);
+  notion.fail('appendChildren', () => Object.assign(notionErrors.uncertain(), { kind: 'not_found', status: 404, resource: 'page' }));
+  await syncer.tick();
+  assert.equal(db.getMeta('notion_error'), null);
+  assert.equal(db.get(1).state, 'sending');
+  assert.equal(db.get(2).state, 'done');
+  advance(backoffMs(1));
+  await syncer.tick();
+  assert.equal(db.get(1).state, 'done');
+});
+
+test('a 400 caused by a renamed property is a service error, not a content fallback', async () => {
+  const { db, miniflux, notion, syncer } = await setup();
+  miniflux.add(1).star(1);
+  notion.fail('createPage', notionErrors.invalid);
+  delete notion.schema[PROPERTIES.entryId.name];
+  await syncer.tick();
+  assert.equal(notion.live().length, 0);
+  assert.equal(db.get(1).attempts, 0);
+  assert.match(db.getMeta('notion_error'), /Miniflux ID/);
+});
+
+test('the Notion setup is checked at startup even with nothing to send', async () => {
+  const clock = { now: new Date('2026-10-04T00:00:00Z') };
+  const db = openDb(':memory:', () => clock.now);
+  const notion = new FakeNotion();
+  notion.fail('dataSourceId', notionErrors.unauthorized);
+  const syncer = createSyncer({ db, miniflux: new FakeMiniflux(), notion, config: CONFIG, now: () => clock.now, log: quiet });
+  await syncer.tick();
+  assert.ok(db.getMeta('notion_setup_error'));
+  assert.equal(statusReport(db, CONFIG, clock.now).ok, false);
+  await syncer.tick();
+  assert.equal(db.getMeta('notion_setup_error'), null);
+  assert.equal(statusReport(db, CONFIG, clock.now).ok, true);
+});
+
+test('backoff grows from 5 minutes up to 6 hours', () => {
+  assert.deepEqual([1, 2, 3, 4].map(backoffMs), [5, 10, 20, 40].map((m) => m * 60_000));
+  assert.equal(backoffMs(20), 6 * 3600_000);
+  let total = 0;
+  for (let i = 1; i < MAX_ATTEMPTS; i++) total += backoffMs(i);
+  assert.ok(total > 10 * 3600_000, 'failed only after a long outage');
+});
+
+test('a run that keeps failing is reported by /status', async () => {
+  const { db, miniflux, syncer, advance } = await setup();
+  const t0 = new Date(db.getMeta('last_tick_ok_at'));
+  miniflux.starredIds = async () => { throw new Error('unexpected'); };
+  advance(31 * 60_000);
+  await syncer.tick();
+  const report = statusReport(db, CONFIG, new Date(t0.getTime() + 31 * 60_000));
+  assert.ok(report.problems.some((p) => p.includes('no run has completed')));
 });
 
 test('rate limiting pauses sending', async () => {
@@ -235,12 +317,16 @@ test('the block limit is reported as such', async () => {
 });
 
 test('a database without the required properties is reported', async () => {
-  const { db, miniflux, notion, syncer } = await setup();
+  const db = openDb(':memory:');
+  const miniflux = new FakeMiniflux();
+  const notion = new FakeNotion();
   delete notion.schema[PROPERTIES.syncId.name];
+  const syncer = createSyncer({ db, miniflux, notion, config: CONFIG, log: quiet });
+  await syncer.tick();
   miniflux.add(1).star(1);
   await syncer.tick();
   assert.equal(notion.pages.size, 0);
-  assert.match(db.getMeta('notion_error'), /同期 ID.*setup-notion/);
+  assert.match(db.getMeta('notion_setup_error'), /同期 ID.*setup-notion/);
 });
 
 test('entries deleted from Miniflux become missing', async () => {

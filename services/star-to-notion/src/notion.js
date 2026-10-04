@@ -12,13 +12,13 @@ const API = 'https://api.notion.com/v1';
  *   uncertain:    書き込みが反映されたか分からない（POST / PATCH の 5xx・タイムアウト・接続断）
  *   invalid:      送った内容が受け付けられなかった（400）。同じ内容での再試行は無駄
  *   fatal:        トークン・権限・ブロック上限など、サービス全体の異常（401 / 403）
- *   not_found:    対象のページなどがない、または共有されていない（404）
+ *   not_found:    対象がない、または共有されていない（404）。resource が 'page' ならそのページだけの問題
  */
 
 export class NotionError extends Error {
   /**
    * @param {string} message
-   * @param {{ kind: ErrorKind, status?: number, code?: string, retryAfter?: number, committedResourceId?: string, blockLimit?: boolean }} info
+   * @param {{ kind: ErrorKind, status?: number, code?: string, retryAfter?: number, committedResourceId?: string, blockLimit?: boolean, resource?: 'page' }} info
    */
   constructor(message, info) {
     super(message);
@@ -32,6 +32,8 @@ export class NotionError extends Error {
     this.committedResourceId = info.committedResourceId;
     /** ワークスペースのブロック数の上限に達した */
     this.blockLimit = info.blockLimit ?? false;
+    /** 'page': 個々のページへの操作で起きたエラー（データベース全体の問題ではない） */
+    this.resource = info.resource;
   }
 }
 
@@ -63,7 +65,7 @@ export function classify(method, res, body) {
     // 書き込みは反映済みで、応答だけが作れなかった。同じ書き込みを繰り返さず、反映されたものを読み直す
     return new NotionError(message, { kind: 'uncertain', status, code, committedResourceId: extra.committed_resource_id });
   }
-  if (status === 409) return new NotionError(message, { kind: 'retryable', status, code });
+  if (status === 409 || status === 408) return new NotionError(message, { kind: 'retryable', status, code });
   if (status >= 500) return new NotionError(message, { kind: write ? 'uncertain' : 'retryable', status, code });
   if (status === 401) return new NotionError(message, { kind: 'fatal', status, code });
   if (status === 403) {
@@ -138,19 +140,37 @@ export function createNotion(options) {
     }
   }
 
+  /**
+   * 個々のページへの操作。404 はそのページだけの問題として印を付ける
+   * @param {'GET' | 'POST' | 'PATCH'} method
+   * @param {string} path
+   * @param {unknown} [body]
+   */
+  async function pageRequest(method, path, body) {
+    try {
+      return await request(method, path, body);
+    } catch (err) {
+      if (err instanceof NotionError && err.kind === 'not_found') err.resource = 'page';
+      throw err;
+    }
+  }
+
   return {
     request,
 
     /**
-     * データベースの最初のデータソースの ID を返す。
+     * データベースのデータソースの ID を返す。データソースが 1 つのデータベースだけを扱う
+     * （複数あると、どれに書くかを取り違えるおそれがあるため）。
      * @param {string} databaseId
      * @returns {Promise<string>}
      */
     async dataSourceId(databaseId) {
       const db = await request('GET', `/databases/${databaseId}`);
-      const id = db?.data_sources?.[0]?.id;
-      if (typeof id !== 'string') throw new NotionError('notion database has no data source', { kind: 'fatal' });
-      return id;
+      const sources = Array.isArray(db?.data_sources) ? db.data_sources : [];
+      if (sources.length !== 1 || typeof sources[0]?.id !== 'string') {
+        throw new NotionError(`notion database must have exactly one data source (has ${sources.length})`, { kind: 'fatal' });
+      }
+      return sources[0].id;
     },
 
     /** @param {string} dataSourceId */
@@ -184,7 +204,7 @@ export function createNotion(options) {
      * @returns {Promise<string>} 作ったページの ID
      */
     async createPage(dataSourceId, properties, children) {
-      const page = await request('POST', '/pages', {
+      const page = await pageRequest('POST', '/pages', {
         parent: { type: 'data_source_id', data_source_id: dataSourceId },
         properties,
         children,
@@ -195,7 +215,7 @@ export function createNotion(options) {
 
     /** @param {string} pageId */
     getPage(pageId) {
-      return request('GET', `/pages/${pageId}`);
+      return pageRequest('GET', `/pages/${pageId}`);
     },
 
     /**
@@ -203,12 +223,12 @@ export function createNotion(options) {
      * @param {Record<string, unknown>} properties
      */
     updatePage(pageId, properties) {
-      return request('PATCH', `/pages/${pageId}`, { properties });
+      return pageRequest('PATCH', `/pages/${pageId}`, { properties });
     },
 
     /** @param {string} pageId */
     trashPage(pageId) {
-      return request('PATCH', `/pages/${pageId}`, { in_trash: true });
+      return pageRequest('PATCH', `/pages/${pageId}`, { in_trash: true });
     },
 
     /**
@@ -216,7 +236,7 @@ export function createNotion(options) {
      * @param {unknown[]} children
      */
     appendChildren(blockId, children) {
-      return request('PATCH', `/blocks/${blockId}/children`, { children });
+      return pageRequest('PATCH', `/blocks/${blockId}/children`, { children });
     },
   };
 }

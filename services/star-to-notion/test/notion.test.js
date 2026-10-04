@@ -50,12 +50,37 @@ test('sends the version header and token, and creates a page under the data sour
   assert.deepEqual(JSON.parse(init.body).parent, { type: 'data_source_id', data_source_id: 'ds-1' });
 });
 
-test('dataSourceId takes the first data source of the database', async () => {
-  const { notion, calls } = client([{ status: 200, body: { data_sources: [{ id: 'ds-1', name: 'a' }, { id: 'ds-2' }] } }]);
+test('dataSourceId requires exactly one data source', async () => {
+  const { notion, calls } = client([{ status: 200, body: { data_sources: [{ id: 'ds-1', name: 'a' }] } }]);
   assert.equal(await notion.dataSourceId('db-1'), 'ds-1');
   assert.equal(calls[0].url, 'https://api.notion.com/v1/databases/db-1');
-  const empty = client([{ status: 200, body: { data_sources: [] } }]);
-  await rejects(empty.notion.dataSourceId('db-1'), (e) => assert.equal(e.kind, 'fatal'));
+  for (const sources of [[], [{ id: 'ds-1' }, { id: 'ds-2' }]]) {
+    const c = client([{ status: 200, body: { data_sources: sources } }]);
+    await rejects(c.notion.dataSourceId('db-1'), (e) => assert.equal(e.kind, 'fatal'));
+  }
+});
+
+test('404 on page operations is marked as a page-level problem', async () => {
+  for (const call of [(n) => n.getPage('p'), (n) => n.updatePage('p', {}), (n) => n.trashPage('p'), (n) => n.appendChildren('p', [])]) {
+    const { notion } = client([{ status: 404, body: { code: 'object_not_found' } }]);
+    await rejects(call(notion), (e) => {
+      assert.equal(e.kind, 'not_found');
+      assert.equal(e.resource, 'page');
+    });
+  }
+  const { notion } = client([{ status: 404, body: { code: 'object_not_found' } }]);
+  await rejects(notion.query('ds', {}), (e) => assert.equal(e.resource, undefined));
+});
+
+test('trashPage and appendChildren send the expected requests', async () => {
+  const { notion, calls } = client([{ status: 200, body: {} }, { status: 200, body: {} }]);
+  await notion.trashPage('p-1');
+  await notion.appendChildren('p-1', [{ type: 'divider', divider: {} }]);
+  assert.equal(calls[0].url, 'https://api.notion.com/v1/pages/p-1');
+  assert.equal(calls[0].init.method, 'PATCH');
+  assert.deepEqual(JSON.parse(calls[0].init.body), { in_trash: true });
+  assert.equal(calls[1].url, 'https://api.notion.com/v1/blocks/p-1/children');
+  assert.equal(JSON.parse(calls[1].init.body).children.length, 1);
 });
 
 test('429 within the limit is retried after Retry-After', async () => {
@@ -95,6 +120,9 @@ test('classification of other errors', async () => {
   const cases = [
     [{ status: 500 }, 'POST', 'uncertain'],
     [{ status: 502 }, 'GET', 'retryable'],
+    [{ status: 502 }, 'POST', 'uncertain'],
+    [{ status: 503 }, 'POST', 'uncertain'],
+    [{ status: 408 }, 'GET', 'retryable'],
     [{ status: 400, body: { code: 'validation_error' } }, 'POST', 'invalid'],
     [{ status: 401, body: { code: 'unauthorized' } }, 'GET', 'fatal'],
     [{ status: 404, body: { code: 'object_not_found' } }, 'GET', 'not_found'],
@@ -115,6 +143,14 @@ test('409 is retried once', async () => {
   const { notion, calls } = client([{ status: 409, body: { code: 'conflict_error' } }, { status: 200, body: {} }]);
   await notion.updatePage('p', {});
   assert.equal(calls.length, 2);
+  const twice = client([{ status: 409 }, { status: 409 }]);
+  await rejects(twice.notion.updatePage('p', {}), (e) => assert.equal(e.kind, 'retryable'));
+  assert.equal(twice.calls.length, 2);
+});
+
+test('429 without Retry-After uses a default wait', async () => {
+  const { notion } = client([{ status: 429, body: { code: 'rate_limited' } }], { maxRateLimitWaitSec: 0 });
+  await rejects(notion.query('ds', {}), (e) => assert.equal(e.retryAfter, 30));
 });
 
 test('network errors: GET is retryable, writes are uncertain', async () => {

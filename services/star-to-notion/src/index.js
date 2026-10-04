@@ -40,10 +40,17 @@ const server = createServer((req, res) => {
 let running = null;
 /** @type {NodeJS.Timeout | undefined} */
 let timer;
+// 例外で中断した回数（連続）。DB の書き込みの失敗などが続く場合は終了し、コンテナの再起動に任せる（monitor.sh も検知する）
+let failures = 0;
 function schedule(delayMs) {
   timer = setTimeout(() => {
     running = syncer.tick()
-      .catch((err) => console.error('tick failed:', err))
+      .then(() => { failures = 0; })
+      .catch((err) => {
+        failures++;
+        console.error(`tick failed (${failures} in a row):`, err);
+        if (failures >= 3) process.exit(1);
+      })
       .finally(() => {
         running = null;
         if (!stopping) schedule(config.pollMinutes * 60_000);

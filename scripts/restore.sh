@@ -100,13 +100,17 @@ on_error() {
         && psql_admin "ALTER DATABASE ${old_db} RENAME TO miniflux;"; } \
         || echo "!! manual action: restore ${old_db} as miniflux" >&2 ;;
   esac
-  local s db
+  local s db old
   for s in "${sqlite_services[@]}"; do
     db="$(sq_db "$s")"
+    old="$(sq_old "$s")"
     case "${sq_state[$s]:-none}" in
       staged) sq_run "$s" "rm -f '$(sq_staged "$s")'" || true ;;
-      swapped) sq_run "$s" "rm -f '${db}' '${db}-wal' '${db}-shm' '$(sq_staged "$s")' && mv '$(sq_old "$s")' '${db}'" \
-        || echo "!! manual action: move $(sq_old "$s") back to ${db}" >&2 ;;
+      # swapping: 退避の途中で失敗した可能性がある。退避済みのファイルがあるときだけ戻す
+      swapping | swapped)
+        sq_run "$s" "rm -f '$(sq_staged "$s")'
+          if [ -f '${old}' ]; then rm -f '${db}' '${db}-wal' '${db}-shm' && mv '${old}' '${db}'; fi" \
+        || echo "!! manual action: move ${old} back to ${db} if it exists" >&2 ;;
     esac
   done
   echo "元のデータに戻してサービスを起動し直します..." >&2
@@ -152,7 +156,8 @@ pg_state=swapped
 
 for s in "${sqlite_services[@]}"; do
   db="$(sq_db "$s")"
-  # 元の DB を退避した直後に状態を記録し、以降の失敗では退避分を必ず戻す
+  # 退避を始める前に状態を記録し、以降の失敗では退避分があれば必ず戻す
+  sq_state[$s]=swapping
   sq_run "$s" "if [ -f '${db}' ]; then mv '${db}' '$(sq_old "$s")'; else : > '$(sq_old "$s")'; fi
     rm -f '${db}-wal' '${db}-shm'"
   sq_state[$s]=swapped
