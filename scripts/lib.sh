@@ -40,3 +40,21 @@ ping_url() {
     curl -fsS -m 10 --retry 3 -o /dev/null "${url}${suffix}"
   fi
 }
+
+# Miniflux API の認証情報を curl の設定ファイル形式で出力する（" と \ をエスケープ）。
+# MINIFLUX_API_KEY があればそれを、なければ ADMIN_USERNAME / ADMIN_PASSWORD を使う。認証情報がなければ 1 を返す。
+# 認証情報がプロセス一覧に出ないよう、curl -K <(miniflux_auth_config) で渡す。
+miniflux_auth_config() {
+  local value
+  if [[ -n "${MINIFLUX_API_KEY:-}" ]]; then
+    value="X-Auth-Token: ${MINIFLUX_API_KEY}"
+    value="${value//\\/\\\\}"; value="${value//\"/\\\"}"
+    printf 'header = "%s"\n' "$value"
+  elif [[ -n "${ADMIN_PASSWORD:-}" ]]; then
+    value="${ADMIN_USERNAME:-admin}:${ADMIN_PASSWORD}"
+    value="${value//\\/\\\\}"; value="${value//\"/\\\"}"
+    printf 'user = "%s"\n' "$value"
+  else
+    return 1
+  fi
+}

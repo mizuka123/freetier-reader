@@ -23,6 +23,11 @@ updates:
     schedule:
       interval: weekly
 
+  - package-ecosystem: docker
+    directory: /services/fetch-proxy
+    schedule:
+      interval: weekly
+
   - package-ecosystem: terraform
     directory: /infra/terraform
     schedule:

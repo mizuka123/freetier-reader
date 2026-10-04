@@ -31,6 +31,8 @@ git fetch --quiet origin
 target="$(git rev-parse "@{u}")"
 if [[ "$before" == "$target" ]]; then
   echo "already up to date (${before:0:7})"
+  # あとから購読した内部のフィードも、週 1 回の自動更新で fetch-proxy 経由に切り替える
+  ./scripts/internal-feeds.sh || echo "warning: internal feeds were not switched to the fetch proxy (monitor.sh will report it)" >&2
   exit 0
 fi
 git merge-base --is-ancestor "$before" "$target" || { notify_fail "upstream is not a fast-forward of ${before:0:7}"; exit 1; }
@@ -76,8 +78,12 @@ trap - ERR
 docker image prune -f >/dev/null || true
 # テーマの CSS が更新されている可能性があるため再適用。失敗しても更新自体は成功扱いとし、
 # apply-theme.sh が作る .state/theme.failed を monitor.sh が通知する
-if ./scripts/apply-theme.sh; then
+warnings=()
+./scripts/apply-theme.sh || warnings+=("theme was not applied (monitor.sh will report it)")
+# compose 内部のフィードを fetch-proxy 経由にする（Miniflux は内部ネットワークへの直接接続を拒否するため）
+./scripts/internal-feeds.sh || warnings+=("internal feeds were not switched to the fetch proxy (monitor.sh will report it)")
+if ((${#warnings[@]} == 0)); then
   echo "update completed"
 else
-  echo "update completed with warnings: theme was not applied (monitor.sh will report it)" >&2
+  printf 'update completed with warnings: %s\n' "${warnings[@]}" >&2
 fi

@@ -39,19 +39,9 @@ fi
 [[ "$mode" == "dads" || "$mode" == "reset" ]] || fail "unknown MINIFLUX_THEME: ${mode} (dads / none)"
 command -v python3 >/dev/null || fail "python3 が必要です"
 
-# curl の設定ファイル形式で認証情報を出力する（" と \ をエスケープ）
+# 認証情報（scripts/lib.sh）。なければ失敗として記録する
 curl_auth_config() {
-  local value
-  if [[ -n "${MINIFLUX_API_KEY:-}" ]]; then
-    value="X-Auth-Token: ${MINIFLUX_API_KEY}"
-    value="${value//\\/\\\\}"; value="${value//\"/\\\"}"
-    printf 'header = "%s"\n' "$value"
-  else
-    [[ -n "${ADMIN_PASSWORD:-}" ]] || fail "MINIFLUX_API_KEY または ADMIN_PASSWORD を設定してください"
-    value="${ADMIN_USERNAME:-admin}:${ADMIN_PASSWORD}"
-    value="${value//\\/\\\\}"; value="${value//\"/\\\"}"
-    printf 'user = "%s"\n' "$value"
-  fi
+  miniflux_auth_config || fail "MINIFLUX_API_KEY または ADMIN_PASSWORD を設定してください"
 }
 
 api() {

@@ -20,6 +20,9 @@ Miniflux に次の URL を購読として追加します（Docker 内部ネッ�
 http://rss-bridge/?action=display&bridge=CssSelectorBridge&home_page=https%3A%2F%2Fhochi.news%2F&url_selector=a%5Bhref%5E%3D%22%2Farticles%2F%22%5D&url_pattern=&content_selector=p.preview__text&content_cleanup=&title_cleanup=+-+%E3%82%B9%E3%83%9D%E3%83%BC%E3%83%84%E5%A0%B1%E7%9F%A5&limit=30&format=Atom
 ```
 
+**購読するときは「詳細オプション」の「プロキシ経由で取得」（Fetch via proxy）を有効にしてください。** Miniflux は内部ネットワークへの直接の接続を拒否する設定になっており、`rss-bridge` などの内部のフィードは、許可したホストだけを中継する `fetch-proxy` を通して取得します。有効にし忘れた場合も、`scripts/update.sh`（または `scripts/internal-feeds.sh`）が内部のフィードを自動でプロキシ経由に切り替えます。
+内部のフィードでは「オリジナルの内容を取得」（全文取得）を有効にしないでください。全文取得も同じプロキシを通るため、外部の記事ページは拒否されて取得できません。本文は `content_selector` で取り出します。
+
 | パラメータ | 値 | 意味 |
 |---|---|---|
 | `home_page` | `https://hochi.news/` | 記事リンクを集めるページ |
@@ -34,12 +37,10 @@ http://rss-bridge/?action=display&bridge=CssSelectorBridge&home_page=https%3A%2F
 docker compose exec miniflux wget -qO- "http://rss-bridge/?action=display&bridge=CssSelectorBridge&...&format=Atom" | head -50
 ```
 
-### Miniflux 側の補助設定（任意）
+### 本文が途中で切れる場合
 
-本文が途中で切れる場合は、Miniflux のフィード設定で次を設定します。
-
-- 「元のコンテンツを取得」（Fetch original content）: 有効
-- スクレイパールール: `p.preview__text`
+RSS-Bridge のフィードは内部のフィードのため、Miniflux の「元のコンテンツを取得」（全文取得）は使えません（外部の記事ページへの取得がプロキシで拒否されます）。
+代わりに、購読 URL の `content_selector` を本文全体を囲む要素（例: 記事本文のコンテナ）に変えて、RSS-Bridge 側で本文を取り出してください。
 
 ## 別のサイトを追加するとき
 

@@ -64,6 +64,7 @@ http://x-webhook-rss:8080/feeds/x/<ユーザー名（小文字）>.xml
 ```
 
 Miniflux → フィード → 追加 で上記 URL を入力し、カテゴリ「X」に入れます。
+「詳細オプション」の「プロキシ経由で取得」（Fetch via proxy）を有効にしてください（内部のフィードは `fetch-proxy` 経由でしか取得できません。詳細は [sources.md](sources.md)）。
 最初の投稿が届くまではフィードが空のままです。
 
 ## 動作確認

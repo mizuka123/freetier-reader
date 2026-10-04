@@ -8,6 +8,7 @@
 |---|---|
 | `compose.yml` | 全コンテナの定義。オプション機能は Compose のプロファイル（`cloudflare` / `x` / `morss` / `rsshub`） |
 | `services/x-webhook-rss/` | IFTTT Webhook → Atom の自作サービス（Node.js 24、ESM、外部依存なし。DB は `node:sqlite`） |
+| `services/fetch-proxy/` | Miniflux が compose 内部のフィードを取得するための転送プロキシ（tinyproxy。許可したホストだけを中継）。Miniflux 本体は内部ネットワークへの直接接続を拒否する設定 |
 | `themes/dads/` | Miniflux 用 CSS テーマとそのテスト |
 | `scripts/` | 初期化・バックアップ・リストア・更新・監視・テーマ適用（bash）。共通処理は `scripts/lib.sh` |
 | `infra/terraform/` | OCI + Cloudflare の構築。VM の初期設定は `templates/cloud-init.yaml.tftpl` |

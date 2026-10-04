@@ -1,0 +1,4 @@
+^http://rss-bridge(:80)?/
+^http://x-webhook-rss:8080/feeds/x/
+^http://morss:8000/
+^http://rsshub:1200/

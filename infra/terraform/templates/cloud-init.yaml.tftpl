@@ -174,6 +174,8 @@ write_files:
       docker compose up -d --build --wait
       # 画面テーマ（失敗しても構築は続行。.state/theme.failed を monitor.sh が通知する）
       retry ./scripts/apply-theme.sh || echo "WARNING: theme was not applied; run scripts/apply-theme.sh later"
+      # 既存のデータボリュームで VM を作り直した場合に、内部のフィードを fetch-proxy 経由にする（.state/internal-feeds.failed を monitor.sh が通知する）
+      retry ./scripts/internal-feeds.sh || echo "WARNING: internal feeds were not switched; run scripts/internal-feeds.sh later"
 
       rm -f "$STATE/bootstrap.failed"
       touch "$STATE/bootstrap.ok"

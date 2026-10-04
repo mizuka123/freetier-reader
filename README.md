@@ -33,6 +33,7 @@
 | miniflux | リーダー本体 | 常時 |
 | postgres | Miniflux の DB | 常時 |
 | rss-bridge | RSS のないサイトのフィード化 | 常時 |
+| fetch-proxy | 内部のフィード（rss-bridge など）だけを中継する転送プロキシ（[services/fetch-proxy](services/fetch-proxy)）。Miniflux は内部ネットワークへの直接接続を拒否する | 常時 |
 | x-webhook-rss | IFTTT Webhook → Atom（[services/x-webhook-rss](services/x-webhook-rss)） | `x` |
 | cloudflared | Cloudflare Tunnel | `cloudflare` |
 | morss | 全文取得の補助 | `morss` |
