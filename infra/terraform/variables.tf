@@ -333,8 +333,9 @@ variable "web_hostname" {
     error_message = "web.example.com のような小文字のホスト名を指定してください（https:// や / は不要）。"
   }
   validation {
-    condition     = var.web_hostname == "" || (contains(var.compose_profiles, "web") && var.web_hostname != var.reader_hostname)
-    error_message = "web_hostname を設定する場合は compose_profiles に web を含め、reader_hostname とは別のホスト名にしてください。"
+    # 公開しないのにコンテナだけ動き続ける（またはその逆）ことがないよう、両方を揃える
+    condition     = contains(var.compose_profiles, "web") == (var.web_hostname != "") && var.web_hostname != var.reader_hostname
+    error_message = "web_hostname を設定する場合は compose_profiles に web を含め（設定しない場合は含めない）、reader_hostname とは別のホスト名にしてください。"
   }
 }
 

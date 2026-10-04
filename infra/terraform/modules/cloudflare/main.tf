@@ -99,6 +99,9 @@ resource "cloudflare_dns_record" "web" {
   content = "${cloudflare_zero_trust_tunnel_cloudflared.this.id}.cfargotunnel.com"
   proxied = true
   ttl     = 1
+
+  # Access で保護されてからホスト名を公開する
+  depends_on = [cloudflare_zero_trust_access_application.web]
 }
 
 # ---- Access ----

@@ -20,23 +20,29 @@ ReactFlux は静的ファイルを配信するだけのコンテナです。記�
 
 ## 有効にする（Terraform で構築した場合）
 
-1. `terraform.tfvars` に追加して `terraform apply`（DNS レコード・Tunnel の経路・Access アプリが作られます）
+先に VM でコンテナを起動し、動くことを確かめてから Cloudflare 側で公開します（逆の順にすると、公開した URL が起動までの間 502 になります）。
+
+1. VM の `.env` の `COMPOSE_PROFILES` に `web` を追加し、コンテナを起動
+
+   ```bash
+   cd /opt/freetier-reader
+   sudo git pull
+   # COMPOSE_PROFILES に web がなければ末尾に追加する（例: cloudflare,x → cloudflare,x,web）
+   grep -Eq '^COMPOSE_PROFILES=([^#]*,)?web(,|$)' .env || sudo sed -i -E 's/^(COMPOSE_PROFILES=[A-Za-z0-9,_-]*)/\1,web/' .env
+   grep '^COMPOSE_PROFILES=' .env
+   sudo docker compose up -d --wait reactflux   # healthy になるまで待つ
+   ```
+
+   `.env` を手で編集しても構いません。`terraform output -raw env_file` で `.env` 全体を再同期する方法もあります（[terraform.md](terraform.md)）。
+
+2. `terraform.tfvars` に追加して `terraform apply`（Access アプリ・DNS レコード・Tunnel の経路が作られます）
 
    ```hcl
    web_hostname     = "web.example.com"
    compose_profiles = ["cloudflare", "x", "web"]
    ```
 
-2. VM の `.env` の `COMPOSE_PROFILES` に `web` を追加し、コンテナを起動
-
-   ```bash
-   cd /opt/freetier-reader
-   sudo git pull
-   sudo sed -i 's/^COMPOSE_PROFILES=.*/&,web/' .env   # 例: cloudflare,x → cloudflare,x,web
-   sudo docker compose up -d
-   ```
-
-   `terraform output -raw env_file` で `.env` 全体を再同期しても構いません（[terraform.md](terraform.md)）。
+3. 別のブラウザ（シークレットウィンドウなど）で `https://web.example.com` を開き、Cloudflare Access のログイン画面になることを確認します。
 
 手動構築の場合は、`.env` の `COMPOSE_PROFILES` に `web` を追加し、Cloudflare Tunnel の Public Hostname に `web.example.com` → `http://reactflux:2000` を追加して、Access のアプリケーションで保護してください。
 
@@ -46,13 +52,25 @@ ReactFlux は静的ファイルを配信するだけのコンテナです。記�
 2. Miniflux の画面（設定 → API キー）で ReactFlux 用の API キーを作る
 3. ReactFlux のログイン画面で、サーバに `https://reader.example.com`、認証方式に **API キー** を選んで入力
 
-- API キーはこのブラウザ（web.example.com）に保存されます。共用の PC では使わないでください。使わなくなったら Miniflux の設定画面で API キーを削除します。
-- 管理者のパスワードではなく API キーを使ってください（パスワードを変えても影響を受けず、キーごとに取り消せるため）。
+- **ユーザー名・パスワードではログインしないでください。** ReactFlux はパスワードでのログインもできますが、ブラウザに保存されるため、漏れたときの影響が大きくなります。API キーならキーごとに取り消せます。誤ってパスワードを入力した場合は、Miniflux の設定画面でパスワードを変更してください。
+- API キーはこのブラウザ（web.example.com）に保存され、Miniflux の API をそのユーザーの権限（管理者なら管理者の権限）で使えます。共用の PC では使わないでください。
+- API キーは ReactFlux 専用に作り、名前で区別しておきます。使わなくなったとき、端末をなくしたとき、漏れた疑いがあるときは、Miniflux の設定 → API キーで削除します（ReactFlux は次の通信からログアウトされます）。
+
+## うまく表示されないとき
+
+ReactFlux の画面は開くのに記事が読み込めない場合は、ブラウザの開発者ツール（Network タブ）で `/v1/` へのリクエストの結果を確認します。
+
+| 結果 | 主な原因 |
+|---|---|
+| 401 | API キーの誤り・削除済み。Miniflux で作り直してログインし直す |
+| 403（Cloudflare のブロック画面） | 国別制限。日本以外の回線（VPN・海外）から使っている（[apps.md](apps.md)） |
+| 429 | レート制限（`api_rate_limit_per_10s`）。Cloudflare のダッシュボード（Security → Events）で確認 |
+| 502 / 応答なし | VM 側の `reactflux` コンテナ（`sudo docker compose ps reactflux`）または Miniflux が止まっている |
 
 ## 更新
 
-イメージは `compose.yml` で tag@digest に固定しており、Dependabot が更新 PR を出します。ReactFlux は対応する Miniflux のバージョン（現在 2.3.2 以上）を README に記載しているので、Miniflux を更新するときはあわせて確認してください。
+イメージは `compose.yml` で tag@digest に固定しており、Dependabot が更新 PR を出します。CI は amd64 / arm64 の両方でこのイメージを起動し、画面のファイルが配信されることを確認します（Miniflux の API との組み合わせまでは確認しません）。ReactFlux は対応する Miniflux のバージョン（現在 2.3.2 以上）を README に記載しているので、Miniflux を更新するときはあわせて確認してください。
 
 ## 無効にする
 
-`web_hostname = ""` にして `terraform apply` し、`.env` の `COMPOSE_PROFILES` から `web` を外して `sudo docker compose up -d --remove-orphans` を実行します。ReactFlux 用に作った API キーは Miniflux の設定画面で削除してください。
+`web_hostname = ""` にして `terraform apply` し（先に公開を止める）、VM の `.env` の `COMPOSE_PROFILES` から `web` を外して `sudo docker compose up -d --remove-orphans` を実行します。ReactFlux 用に作った API キーは Miniflux の設定画面で削除してください。
