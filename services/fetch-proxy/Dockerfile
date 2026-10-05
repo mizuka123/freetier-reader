@@ -12,7 +12,13 @@ COPY tinyproxy.conf allowed-urls /etc/tinyproxy/
 USER nobody
 EXPOSE 8888
 
+# 許可していない URL を問い合わせ、tinyproxy 自身が 403（Filtered）を返すことで、HTTP を処理できて拒否の設定も
+# 効いていることを確かめる（フィルタは名前解決より前に評価されるため、.invalid の名前解決や外部への通信は発生しない）。
+# 接続だけを確かめる nc -z は、何も送らずに切断するため tinyproxy が毎回 ERROR を記録してしまう。
+# 応答はいったん全部受け取ってから調べる（grep が途中でやめて接続が先に切れないように）。理由句（Filtered）は
+# tinyproxy の版で変わりうるため、ステータスコードだけを見る。
+# この方法でも 1 分に 1 回 NOTICE（Proxying refused on filtered url "http://healthcheck.invalid/"）が記録される
 HEALTHCHECK --interval=60s --timeout=5s --retries=3 \
-  CMD nc -z 127.0.0.1 8888 || exit 1
+  CMD r="$(printf 'GET http://healthcheck.invalid/ HTTP/1.0\r\n\r\n' | nc -w 3 127.0.0.1 8888)" && printf '%s\n' "$r" | grep -q '^HTTP/1\.[01] 403' || exit 1
 
 CMD ["tinyproxy", "-d", "-c", "/etc/tinyproxy/tinyproxy.conf"]
