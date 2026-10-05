@@ -193,6 +193,12 @@ jobs:
             echo "$out" | grep -q '403 Filtered' || { echo "expected the proxy to refuse $url"; exit 1; }
           done
 
+          echo "--- the healthcheck does not make tinyproxy log errors"
+          # compose up --wait が healthy を待つため、ヘルスチェックは少なくとも 1 回動いている
+          logs="$(docker compose logs --no-log-prefix fetch-proxy)"
+          grep -q 'filtered url "http://healthcheck.invalid/"' <<<"$logs"
+          if grep 'ERROR' <<<"$logs"; then echo "tinyproxy logged errors"; exit 1; fi
+
           echo "--- internal-feeds.sh switches an internal feed back to the proxy"
           api --fail-with-body -X PUT "$b/feeds/$id" --data '{"fetch_via_proxy":false}' >/dev/null
           ./scripts/internal-feeds.sh | tee /tmp/internal.log   # update.sh と同じく直接実行（実行権限の確認を兼ねる）
@@ -316,6 +322,12 @@ jobs:
           test "$(proxied http://x-webhook-rss:8080/feeds/x/ci.xml)" = 200
           test "$(proxied http://x-webhook-rss:8080/healthz)" = 403
           test "$(proxied http://example.com/)" = 403
+          # イメージの HEALTHCHECK（busybox の printf / nc を使う）が両アーキテクチャで healthy になること
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' fetch-proxy)" = healthy ] && break
+            sleep 5
+          done
+          docker inspect -f '{{.State.Health.Status}}' fetch-proxy | grep -qx healthy
       - if: failure()
         run: docker logs x-webhook-rss; docker logs fetch-proxy
       - run: docker build -t star-to-notion:ci services/star-to-notion
