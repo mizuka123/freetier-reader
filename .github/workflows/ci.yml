@@ -197,7 +197,8 @@ jobs:
           # compose up --wait が healthy を待つため、ヘルスチェックは少なくとも 1 回動いている
           logs="$(docker compose logs --no-log-prefix fetch-proxy)"
           grep -q 'filtered url "http://healthcheck.invalid/"' <<<"$logs"
-          if grep 'ERROR' <<<"$logs"; then echo "tinyproxy logged errors"; exit 1; fi
+          # tinyproxy のログは行頭に重要度が付く（例: "ERROR    Oct 06 12:00:00.000 [1]: ..."）
+          if grep -E '^(ERROR|CRITICAL)[[:space:]]' <<<"$logs"; then echo "tinyproxy logged errors"; exit 1; fi
 
           echo "--- internal-feeds.sh switches an internal feed back to the proxy"
           api --fail-with-body -X PUT "$b/feeds/$id" --data '{"fetch_via_proxy":false}' >/dev/null
