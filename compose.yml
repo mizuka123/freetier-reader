@@ -172,7 +172,7 @@ services:
 
   rsshub:
     profiles: ["rsshub"]
-    image: diygod/rsshub:2026-10-01@sha256:eda756a26478e94a34155748f8c6fe7030f3fe8ade30544ed53d4984bef4051e
+    image: diygod/rsshub:2026-10-19@sha256:9cd68100823223a18cd160fd6046d1f6ec3c51a5d61efd2c645bcdb0daa43e9d
     restart: unless-stopped
     logging: *logging
     environment:
