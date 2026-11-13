@@ -155,7 +155,7 @@ services:
   # 静的ファイルを配信するだけで、記事の取得はブラウザから Miniflux の API（/v1/）へ直接行う（docs/web.md）
   reactflux:
     profiles: ["web"]
-    image: electh/reactflux:2026.10.03@sha256:819b3695578a5a282de264cf7c2804bfdf97b9dc858ad82820e99b6174de22f8
+    image: electh/reactflux:2026.11.07@sha256:6332c641211afb6f9bd5f952d27a1d2e8ba40b0f15c4cda8152024c9532bd4c2
     restart: unless-stopped
     logging: *logging
     healthcheck:
